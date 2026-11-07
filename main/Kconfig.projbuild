@@ -1,0 +1,63 @@
+menu "Round recorder"
+
+    config REC_SECONDS
+        int "Seconds kept, and saved with each Save"
+        range 10 300
+        default 180
+        help
+            How much audio the board holds, and so how long each saved clip
+            is. Each second takes 8 KB of flash and 16 KB of PSRAM (the ring
+            and a save's copy of it). 180 s gives 14 slots in the 32 MB
+            flash, 60 s gives 41. Changing it changes the size of the slots
+            in flash, so clips saved before may be lost.
+
+    config REC_KEEP_MAX_S
+        int "Longest recording, seconds"
+        range 60 3000
+        default 900
+        help
+            Save keeps what's held and goes on recording until Save comes
+            again, or until the recording is this long. It's written in
+            parts the length of what's held, one slot each, and always
+            leaves at least one slot to the other recordings.
+
+    config REC_LOW_BATTERY_PCT
+        int "On battery, save and power off at this charge (percent)"
+        range 0 20
+        default 3
+        help
+            Below it, off USB, the board saves what it's holding (or ends
+            the recording going on) and powers off, so the battery running
+            out doesn't lose it. 0 turns this off.
+
+    config REC_SOUNDS
+        bool "Sounds when a recording starts, stops or fails"
+        default y
+        help
+            Two short notes on the speaker: up for a start, down for a
+            stop, low for a save that failed. Heard in a pocket, and left
+            in the recording as a marker. Until it's changed in Settings.
+
+    config REC_MIC_GAIN_DB
+        int "Microphone gain (dB)"
+        range 0 36
+        default 30
+        help
+            The ES7210's gain, in 3 dB steps, until it's changed in
+            Settings on the board. Lower it if loud voices clip.
+
+    config REC_VOLUME
+        int "Speaker volume for playback (0-100)"
+        range 0 100
+        default 70
+        help
+            Until it's changed in Settings on the board.
+
+    config REC_SCREEN_OFF_S
+        int "Screen off after this many seconds without a touch"
+        range 5 600
+        default 15
+        help
+            Until it's changed in Settings on the board.
+
+endmenu

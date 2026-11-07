@@ -1,0 +1,9 @@
+# Round recorder on the Waveshare ESP32-S3-Touch-AMOLED-1.75C (32 MB flash).
+#
+# The settings, the app, and the rest of the flash for recordings. To keep
+# Muse Gadget on the board beside it, see partitions_muse.csv.
+#
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x7000,
+factory,  app,  factory, 0x10000,  0x300000,
+clips,    data, 0x40,    0x310000, 0x1CF0000,

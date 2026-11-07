@@ -1,0 +1,11 @@
+build/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+recordings/
+__pycache__/
+build.log
+.venv/
+build-public/
+build-public.log

@@ -1,0 +1,9 @@
+[Desktop Entry]
+# Copy to ~/.local/share/applications/ and set Exec to where the project is.
+Type=Application
+Name=Round recorder
+Comment=Download new recordings from the round recorder
+Exec=python3 /path/to/round-recorder/tools/sync.py
+Icon=audio-input-microphone
+Terminal=false
+Categories=AudioVideo;Audio;
