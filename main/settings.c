@@ -47,7 +47,8 @@ esp_err_t settings_init(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        /* Ours alone (partitions.csv): Muse's NVS is elsewhere. */
+        /* The partition is ours alone (partitions.csv), so starting it
+         * over loses only our settings. */
         ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "erase");
         err = nvs_flash_init();
     }

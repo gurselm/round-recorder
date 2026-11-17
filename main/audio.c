@@ -20,8 +20,8 @@ static float s_hpf_a, s_hpf_x1, s_hpf_y1;
 
 esp_err_t audio_init(int mic_gain_db, int volume)
 {
-    /* As muse-gadget-sdk's 1.75C board does: both codecs on the BSP's
-     * duplex I2S, stereo at 16 kHz, the two mics averaged. */
+    /* Both codecs on the BSP's duplex I2S, stereo at 16 kHz, the two mics
+     * averaged. */
     s_spk = bsp_audio_codec_speaker_init();
     s_mic = bsp_audio_codec_microphone_init();
     ESP_RETURN_ON_FALSE(s_spk && s_mic, ESP_FAIL, TAG, "codec init");

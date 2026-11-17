@@ -5,13 +5,6 @@ firmware it builds also contains the code below, each under its own license.
 The full license texts come with each component: ESP-IDF in its own tree,
 the rest under `managed_components/` once `idf.py build` has fetched them.
 
-## In this repository
-
-- `main/pmu.c`, `main/pmu.h`, `main/adpcm.c`, `main/adpcm.h`: adapted from
-  [muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk),
-  Copyright (c) Meta Platforms, Inc. and affiliates. Apache License 2.0;
-  the original headers are kept in the files.
-
 ## Linked into the firmware
 
 | Component | License |

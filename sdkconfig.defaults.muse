@@ -1,6 +1,0 @@
-# Keeps Muse Gadget's partitions on the board: the recorder lives above them
-# (partitions_muse.csv), with the partition table at Muse's offset. Build with
-#   idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.muse" build
-# after deleting sdkconfig.
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_muse.csv"
-CONFIG_PARTITION_TABLE_OFFSET=0x10000

@@ -1,33 +1,19 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 #pragma once
 
 #include <stddef.h>
 #include <stdint.h>
 
 /*
- * IMA ADPCM, one 4-bit code per 16-bit sample, from muse-gadget-sdk's
- * muse_adpcm. Encoder and decoder must see the same samples in the same order
- * from the same state.
+ * IMA ADPCM (the IMA/DVI standard): each 16-bit sample becomes a 4-bit code,
+ * the difference from a prediction in units of a step that grows and
+ * shrinks with the sound. Encoder and decoder must start from the same
+ * state and see the same codes in the same order; tools/pull.py decodes the
+ * same way.
  */
 
 typedef struct {
-    int16_t pred;
-    int8_t index;
+    int16_t pred;    /* the last sample, as the decoder will have it */
+    int8_t index;    /* into the step table, 0 to 88 */
 } adpcm_t;
 
 /* n samples (even) to or from n/2 bytes, the first sample of each pair in the low nibble. */

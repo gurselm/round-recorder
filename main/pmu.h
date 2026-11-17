@@ -1,19 +1,3 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 #pragma once
 
 #include <stdbool.h>
@@ -23,9 +7,9 @@
 #include "esp_err.h"
 
 /*
- * Minimal AXP2101 access (muse-gadget-sdk's muse_pmu, less the power-key
- * latch: GPIO3 reads PWR on the 1.75C): battery and USB status, unused rails
- * off, and soft power-off.
+ * The board's AXP2101 power chip, as much as the recorder needs: battery and
+ * USB status, turning unused rails off, and powering off. The PWR button
+ * itself is read on GPIO3, not here.
  */
 
 typedef struct {
@@ -35,7 +19,7 @@ typedef struct {
     bool usb;
 } pmu_power_t;
 
-/* Holding PWR 10 s cuts the power whatever the firmware does. */
+/* Also makes holding PWR 10 s cut the power whatever the firmware does. */
 esp_err_t pmu_init(i2c_master_bus_handle_t bus);
 
 /* Turns off every rail but these, by their enable bits: dcdc has DCDC1-5 in
@@ -49,5 +33,5 @@ esp_err_t pmu_read_power(pmu_power_t *out);
  * the screen's task, which mustn't wait on a bus it shares with touch. */
 esp_err_t pmu_last_power(pmu_power_t *out);
 
-/* Soft power-off: the AXP2101 cuts every rail. PWR turns the board back on. */
+/* The AXP2101 cuts every rail. PWR turns the board back on. */
 esp_err_t pmu_power_off(void);

@@ -195,7 +195,7 @@ static esp_err_t display_start(void)
  * Off: LVGL stops, the CST9217 goes to deep sleep (0xD105, where only its
  * reset wakes it) and the panel to SLPIN. Plain SLPIN rather than the
  * driver's sleep, whose deep standby pulses the reset line it shares with
- * touch. As muse-gadget-sdk's 1.75C board does.
+ * touch.
  */
 static void power_lock(void)
 {

@@ -118,8 +118,7 @@ with. Or build it yourself (see "Building and flashing").
   sounds, the always-on ring and tap to wake, on or off; storage (used,
   protected, downloaded); and Power off. Changes take effect at once and are kept across restarts.
 
-There are 20 slots of 3 minutes each, an hour in all (14 when it shares
-the board with Muse Gadget). A recording longer than that is written in
+There are 20 slots of 3 minutes each, an hour in all. A recording longer than that is written in
 3-minute parts, a slot each, and always leaves one slot free for the others.
 
 On battery it records until you power it off or the battery runs out. With
@@ -132,9 +131,9 @@ and time. Clips saved before it are named by their number.
 ## Battery life
 
 Recording never stops, so the chip can't sleep: the I2S that reads the mics
-keeps it awake at 80 MHz or more. With the screen off, expect about 30–45 mA.
-That's an estimate from muse-gadget-sdk's SenseCAP Watcher measurements, not
-yet measured on this board. In hours, roughly 12 on a 500 mAh LiPo and a day
+keeps it awake at 80 MHz or more. With the screen off, expect about 30–45 mA,
+an estimate for an ESP32-S3 working like this, not yet measured on this
+board. In hours, roughly 12 on a 500 mAh LiPo and a day
 on 1000 mAh. The screen adds a lot while it's on, so let it time out.
 
 ## Getting the clips
@@ -221,23 +220,6 @@ python3 tools/snap.py t.png settings --tap 233,233   # tap there, as a finger wo
 The screens are main, help, help-topic, list, settings, dial, confirm, delete-all, delete-downloaded, name,
 keyboard (keyboard-123 and keyboard-sym for its other modes), manage, player, intro, aod and tour (tour0 to tour6 for each step).
 LVGL renders the screenshot into PSRAM, so it costs nothing until it's used.
-
-## Sharing the board with Muse Gadget
-
-If the board also runs [Muse Gadget](https://github.com/facebookincubator/muse-gadget-sdk),
-build with its layout instead (after deleting `sdkconfig`):
-
-```sh
-idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.muse" build
-```
-
-`partitions_muse.csv` leaves Muse's first 0x830000 bytes alone: its app,
-and its NVS with your pairing and Wi-Fi. Flashing this replaces only the
-bootloader and the partition table. To go back, flash Muse as usual (in
-muse-gadget-sdk/esp32, `tools/muse/board.sh flash s3`). It comes back still
-paired. The recorder's clips stay in flash above Muse's area until something
-overwrites them. The board's AXP2101 driver and ADPCM codec come from
-muse-gadget-sdk too (`main/pmu.*`, `main/adpcm.*`, Apache 2.0).
 
 ## How it works
 
