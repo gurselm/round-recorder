@@ -799,7 +799,7 @@ static void fill_list(void)
 static void on_save(lv_event_t *e)
 {
     if (recorder_paused()) {
-        recorder_set_paused(false);   /* it says PAUSED, tap to listen */
+        recorder_set_paused(false);   /* it says RESUME */
         return;
     }
     atomic_store(&s_quiet, false);   /* on the screen: the name prompt follows */
@@ -1610,7 +1610,7 @@ typedef struct {
 
 static const help_line_t HELP_TOP[] = {
     { "Tap", "Save the last 3 minutes" },  { "Tap again soon", "Keep recording on" },
-    { "Tap while recording", "Stop" },     { "Tap while paused", "Listen again" },
+    { "Tap while recording", "Stop" },     { "Tap while paused", "Resume" },
     { "Hold 3 s", "Turn off, keeping it" },
     { "Press when off", "Turn on" },       { "Hold 10 s", "Force off, if stuck" },
 };
@@ -1626,7 +1626,7 @@ static const help_line_t HELP_MAIN[] = {
     { "The ring", "Moves with the sound" },
     { "Red ring", "Recording: SAVE is STOP" },
     { LV_SYMBOL_PAUSE " Pause, held", "Stop listening" },
-    { "Paused", "Tap SAVE or Listen" },
+    { "Paused", "Tap RESUME" },
     { "Arc beside PWR", "PWR does what SAVE does" },
     { LV_SYMBOL_LIST " Recordings", "Play, protect, delete" },
     { LV_SYMBOL_SETTINGS " Settings", "Sound, screen, storage" },
@@ -1943,7 +1943,7 @@ static void build_bands(void)
 {
     band(BAND_PAUSE, LV_SYMBOL_PAUSE, &lv_font_montserrat_20, "Pause", true);
     lv_label_set_text(s_band_sub[BAND_PAUSE], "hold");
-    lv_obj_set_style_arc_color(s_band[BAND_PAUSE], AMBER, LV_STATE_CHECKED);   /* paused: Listen */
+    lv_obj_set_style_arc_color(s_band[BAND_PAUSE], AMBER, LV_STATE_CHECKED);   /* paused: Resume */
     lv_obj_add_event_cb(s_band[BAND_PAUSE], on_pause_band, LV_EVENT_ALL, NULL);
     band(BAND_HELP, "?", &lv_font_montserrat_28, "Help", false);
     lv_obj_add_event_cb(s_band[BAND_HELP], on_open_help, LV_EVENT_CLICKED, NULL);
@@ -2349,14 +2349,14 @@ static void refresh(lv_timer_t *t)
     rec_save_state_t st = recorder_save_state();
     /* From the press on: the flash catches up behind it. */
     bool recording = st == REC_SAVE_RECORDING, saving = st == REC_SAVE_BUSY;
-    /* Paused, the Pause band is Listen, amber; while recording there's one
+    /* Paused, the Pause band is Resume, amber; while recording there's one
      * thing to do, Stop, the big button, so it goes. */
     lv_obj_t *pb = s_band[BAND_PAUSE];
     lv_obj_set_flag(pb, LV_OBJ_FLAG_HIDDEN, recording);
     if (paused != lv_obj_has_state(pb, LV_STATE_CHECKED)) {
         lv_obj_set_state(pb, LV_STATE_CHECKED, paused);
         lv_label_set_text(s_band_icon[BAND_PAUSE], paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
-        lv_label_set_text(s_band_text[BAND_PAUSE], paused ? "Listen" : "Pause");
+        lv_label_set_text(s_band_text[BAND_PAUSE], paused ? "Resume" : "Pause");
         lv_obj_set_flag(s_band_sub[BAND_PAUSE], LV_OBJ_FLAG_HIDDEN, paused);
         lv_obj_set_style_text_color(pb, paused ? lv_color_hex(0x1A1A1A) : lv_color_white(), 0);
     }
@@ -2384,7 +2384,7 @@ static void refresh(lv_timer_t *t)
         lv_label_set_text(s_save_sub, "");
     } else if (paused) {
         lv_label_set_text(s_held, "Paused: not listening");
-        lv_label_set_text(s_save_sub, "tap to listen");
+        lv_label_set_text(s_save_sub, "paused");
     } else {
         bool hint = now < s_hold_hint_us;   /* a tap on Pause */
         bool nothing = now < atomic_load(&s_nothing_until);   /* a save with nothing new */
@@ -2437,7 +2437,7 @@ static void refresh(lv_timer_t *t)
     } else if (bad) {
         lv_label_set_text(s_save_label, full ? "FULL" : "FAILED");
     } else if (paused) {
-        lv_label_set_text(s_save_label, "PAUSED");
+        lv_label_set_text(s_save_label, "RESUME");
     } else {
         lv_label_set_text(s_save_label, "SAVE");
     }

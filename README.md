@@ -74,8 +74,8 @@ with. Or build it yourself (see "Building and flashing").
   does. The battery shows the hours left once it has run down 3 % off USB,
   and warns at 15 %.
 - **Pause** takes a hold: the band fills amber, then it stops listening. A
-  tap only says to hold it. Paused, SAVE says PAUSED, tap to listen, and a
-  tap on it, on the band (Listen) or on PWR listens again.
+  tap only says to hold it. Paused, SAVE and the band both say RESUME, and
+  a tap on either, or on PWR, listens again.
 - **Help (?):** the first time, a tour of the main screen: seven steps, each
   lighting the control it's about (the side buttons light on the rim beside
   them) and dimming the rest. Tap for the next step, swipe right for the one
