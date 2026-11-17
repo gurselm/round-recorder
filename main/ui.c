@@ -1780,9 +1780,10 @@ static void on_swipe(lv_event_t *e)
 
 enum { BAND_PAUSE, BAND_HELP, BAND_SET, BAND_LIST, BANDS };
 
-#define BAND_RI 112   /* inner radius: clear of SAVE's 98 */
-#define BAND_RO 202   /* outer: inside the arc beside PWR and the ring */
+#define BAND_RI 108   /* inner radius: 10 px clear of SAVE's 98 */
+#define BAND_RO 208   /* outer: inside the arc beside PWR (from 211) and the ring */
 #define BAND_GAP 2    /* degrees each side of a band left empty */
+#define BAND_PAD 4    /* a band's words keep this far from its edges, where they can */
 
 /* Compass degrees, 0 at the top, clockwise. */
 static const int16_t BAND_DEG[BANDS][2] = {
@@ -1790,6 +1791,7 @@ static const int16_t BAND_DEG[BANDS][2] = {
 };
 
 static lv_obj_t *s_band[BANDS], *s_band_icon[BANDS], *s_band_text[BANDS], *s_band_sub[BANDS];
+static lv_obj_t *s_band_col[BANDS];   /* the icon and words, placed by place_band_label() */
 static int32_t s_hold;          /* Pause held: 0 to 1000 of the way to pausing */
 static int64_t s_hold_hint_us;  /* a tap on Pause: "Hold to pause" until then */
 
@@ -1918,13 +1920,12 @@ static lv_obj_t *band(int i, const char *icon, const lv_font_t *icon_font, const
 
     lv_obj_t *col = lv_obj_create(b);
     lv_obj_remove_style_all(col);
-    lv_obj_set_size(col, 150, LV_SIZE_CONTENT);
+    lv_obj_set_size(col, LV_SIZE_CONTENT, LV_SIZE_CONTENT);   /* the words' own size, to fit in the band */
+    s_band_col[i] = col;
     lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(col, 4, 0);
-    float mid = (float)(BAND_DEG[i][0] + BAND_DEG[i][1]) / 2.0f * (float)M_PI / 180.0f, r = (BAND_RI + BAND_RO) / 2.0f;
-    lv_obj_align(col, LV_ALIGN_CENTER, (int32_t)lroundf(r * sinf(mid)), (int32_t)lroundf(-r * cosf(mid)));
     s_band_icon[i] = lv_label_create(col);
     lv_obj_set_style_text_font(s_band_icon[i], icon_font, 0);
     lv_label_set_text(s_band_icon[i], icon);
@@ -1939,6 +1940,70 @@ static lv_obj_t *band(int i, const char *icon, const lv_font_t *icon_font, const
     return b;
 }
 
+/* How far a point (from the screen's centre) is inside band i: to its
+ * nearest edge, in pixels; negative outside. */
+static float band_clearance(int i, float x, float y)
+{
+    float r = sqrtf(x * x + y * y);
+    float deg = atan2f(x, -y) * 180.0f / (float)M_PI;   /* compass: 0 at 12 o'clock, clockwise */
+    if (deg < 0) {
+        deg += 360.0f;
+    }
+    float lo = BAND_DEG[i][0] + BAND_GAP, hi = BAND_DEG[i][1] - BAND_GAP;
+    float side = fminf(deg - lo, hi - deg) * (float)M_PI / 180.0f * r;   /* along the arc, near enough */
+    return fminf(fminf(r - BAND_RI, BAND_RO - r), side);
+}
+
+/* Band i's icon and words in the band's middle if they fit there with
+ * BAND_PAD to spare, else as near it as they do; if they fit nowhere, where
+ * they come closest. The bands are about 100 px thick, so a long line has
+ * to move to where the band runs across it. Runs again when the words
+ * change. Logs if they poke out, so a new wording can't do it quietly. */
+static void place_band_label(int i)
+{
+    lv_obj_t *col = s_band_col[i];
+    lv_obj_update_layout(col);
+    float w = (float)lv_obj_get_width(col), h = (float)lv_obj_get_height(col);
+    float mid_deg = (BAND_DEG[i][0] + BAND_DEG[i][1]) / 2.0f, mid_r = (BAND_RI + BAND_RO) / 2.0f;
+    float best = -1e9f, margin = 0, bx = 0, by = 0;
+    for (float deg = BAND_DEG[i][0]; deg <= BAND_DEG[i][1]; deg += 2.0f) {
+        for (float r = BAND_RI; r <= BAND_RO; r += 3.0f) {
+            float a = deg * (float)M_PI / 180.0f, cx = r * sinf(a), cy = -r * cosf(a);
+            float worst = 1e9f;
+            /* The box's corners and the middles of its sides. */
+            for (int k = 0; k < 8; k++) {
+                static const int8_t U[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 },
+                                                { 1, 1 },   { 0, 1 },  { -1, 1 }, { -1, 0 } };
+                worst = fminf(worst, band_clearance(i, cx + U[k][0] * w / 2, cy + U[k][1] * h / 2));
+            }
+            /* Any spot with room to spare beats any without; among those,
+             * the nearer the middle the better. */
+            float off = fabsf(deg - mid_deg) * (float)M_PI / 180.0f * mid_r + fabsf(r - mid_r);
+            float score = worst >= BAND_PAD ? 1000.0f - off : worst * 10.0f - off * 0.01f;
+            if (score > best) {
+                best = score;
+                margin = worst;
+                bx = cx;
+                by = cy;
+            }
+        }
+    }
+    lv_obj_align(col, LV_ALIGN_CENTER, (int32_t)lroundf(bx), (int32_t)lroundf(by));
+    if (margin < 0) {   /* measured at the box's corners, which words rarely reach */
+        ESP_LOGW(TAG, "band %d: \"%s\" (%dx%d) doesn't fit, margin %.0f px", i, lv_label_get_text(s_band_text[i]),
+                 (int)w, (int)h, margin);
+    }
+}
+
+/* Sets a band's words, and places them again if they changed. */
+static void set_band_text(int i, lv_obj_t *label, const char *text)
+{
+    if (strcmp(lv_label_get_text(label), text)) {
+        lv_label_set_text(label, text);
+        place_band_label(i);
+    }
+}
+
 static void build_bands(void)
 {
     band(BAND_PAUSE, LV_SYMBOL_PAUSE, &lv_font_montserrat_20, "Pause", true);
@@ -1949,8 +2014,18 @@ static void build_bands(void)
     lv_obj_add_event_cb(s_band[BAND_HELP], on_open_help, LV_EVENT_CLICKED, NULL);
     band(BAND_SET, LV_SYMBOL_SETTINGS, &lv_font_montserrat_20, "Settings", false);
     lv_obj_add_event_cb(s_band[BAND_SET], on_open_settings, LV_EVENT_CLICKED, NULL);
-    band(BAND_LIST, LV_SYMBOL_LIST, &lv_font_montserrat_20, "Recordings", true);
+    band(BAND_LIST, LV_SYMBOL_LIST, &lv_font_montserrat_20, LV_SYMBOL_LIST "  0", true);
+    /* The icon and the count on one line, big; how many more fit small
+     * under it: the band is only so wide. */
+    lv_obj_add_flag(s_band_icon[BAND_LIST], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_font(s_band_text[BAND_LIST], &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(s_band_sub[BAND_LIST], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_align(s_band_sub[BAND_LIST], LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_row(s_band_col[BAND_LIST], 2, 0);   /* "Full: / oldest goes" fits */
     lv_obj_add_event_cb(s_band[BAND_LIST], on_open_list, LV_EVENT_CLICKED, NULL);
+    for (int i = 0; i < BANDS; i++) {
+        place_band_label(i);
+    }
 
     /* Beside PWR on the rim, SAVE's colour: that button does what SAVE
      * does. PWR is 40 degrees above 3 o'clock; LVGL's angles start there. */
@@ -2237,15 +2312,19 @@ static void show_room(int n)
         replaceable |= !s_rows[i].kept && s_rows[i].first != going;
     }
     uint32_t slots = recorder_slots(), free = slots > used ? slots - used : 0;
-    lv_label_set_text_fmt(s_band_text[BAND_LIST], n == 1 ? "1 recording" : "%d recordings", n);
+    /* The count big, by the list icon; under it how many more saves fit. */
+    char count[24], room[24];
+    snprintf(count, sizeof(count), LV_SYMBOL_LIST "  %d", n);
     lv_obj_t *sub = s_band_sub[BAND_LIST];
     if (free == 1) {
-        lv_label_set_text(sub, "1 more fits");
+        snprintf(room, sizeof(room), "1 more fits");
     } else if (free) {
-        lv_label_set_text_fmt(sub, "%" PRIu32 " more fit", free);
+        snprintf(room, sizeof(room), "%" PRIu32 " more fit", free);
     } else {
-        lv_label_set_text(sub, replaceable ? "Full: oldest goes" : "Full");
+        snprintf(room, sizeof(room), "%s", replaceable ? "Full:\noldest goes" : "Full");
     }
+    set_band_text(BAND_LIST, s_band_text[BAND_LIST], count);
+    set_band_text(BAND_LIST, sub, room);
     lv_obj_set_style_text_color(sub, free > 1 ? DIM : free == 1 ? AMBER : RED, 0);
 }
 
@@ -2356,8 +2435,8 @@ static void refresh(lv_timer_t *t)
     if (paused != lv_obj_has_state(pb, LV_STATE_CHECKED)) {
         lv_obj_set_state(pb, LV_STATE_CHECKED, paused);
         lv_label_set_text(s_band_icon[BAND_PAUSE], paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
-        lv_label_set_text(s_band_text[BAND_PAUSE], paused ? "Resume" : "Pause");
         lv_obj_set_flag(s_band_sub[BAND_PAUSE], LV_OBJ_FLAG_HIDDEN, paused);
+        set_band_text(BAND_PAUSE, s_band_text[BAND_PAUSE], paused ? "Resume" : "Pause");
         lv_obj_set_style_text_color(pb, paused ? lv_color_hex(0x1A1A1A) : lv_color_white(), 0);
     }
     /* The ring: the mic's level while listening, a sweep while saving, red
