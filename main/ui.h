@@ -18,6 +18,7 @@ void ui_show_off(void);      /* "Off" before the power goes */
 bool ui_take_power_off(void); /* true once after Power off in Settings */
 bool ui_take_wake_request(void); /* true once after a tap on the dim ring */
 void ui_quiet_save(void);     /* the next save is PWR's: no name prompt, it may be in a pocket */
+void ui_nothing_new(void);     /* a save with nothing new since the last: says so, with the low pair */
 void ui_battery_low(bool low); /* shown until it's false again */
 
 /* For tools/snap.py: opens a screen (main, list, settings, dial (the mic

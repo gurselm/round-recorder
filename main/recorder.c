@@ -58,6 +58,7 @@ static atomic_bool s_cont_req;
 static atomic_llong s_saved_at;         /* when the last save was done, us; 0 before one */
 static atomic_uint s_rec_first;         /* the recording going on, or 0 */
 static atomic_uint s_rec_held, s_rec_mark;   /* at Save: blocks held, and the ring's count then */
+static atomic_uint s_saved_end;   /* the ring's count where the last save or recording ended */
 static atomic_int s_chime;              /* a sound for the play task to make, or CHIME_NONE */
 static rec_deleted_t s_undo[REC_MAX_PARTS];   /* the last recording deleted; under the store's lock */
 static int s_undo_n;
@@ -183,6 +184,7 @@ static void save_task(void *arg)
         ulTaskNotifyTake(pdTRUE, first ? pdMS_TO_TICKS(1000) : portMAX_DELAY);
         xSemaphoreTake(s_ring_lock, portMAX_DELAY);
         rec_span_t held = rec_ring_span(&s_ring);
+        rec_span_t fresh_span = rec_ring_span_since(&s_ring, atomic_load(&s_saved_end));   /* a new save's */
         xSemaphoreGive(s_ring_lock);
         uint32_t end = held.first + held.count;   /* in the ring's numbering */
         rec_clip_t clip;
@@ -207,7 +209,7 @@ static void save_task(void *arg)
             if (st != REC_SAVE_BUSY && st != REC_SAVE_RECORDING) {
                 continue;
             }
-            int err = held.count ? save_span(held, 0, &clip) : -1;
+            int err = fresh_span.count ? save_span(fresh_span, 0, &clip) : -1;
             if (err) {
                 ESP_LOGE(TAG, "save failed%s", err == REC_FULL ? ": every clip is in a kept recording" : "");
                 atomic_store(&s_save_state, failure(err));
@@ -217,7 +219,8 @@ static void save_task(void *arg)
             first = clip.seq;
             next = end;
             parts = 1;
-            blocks = held.count;
+            blocks = fresh_span.count;
+            atomic_store(&s_saved_end, end);   /* the next save starts here */
             atomic_store(&s_last_slot, clip.slot);
             atomic_store(&s_last_seq, clip.seq);
             if (atomic_load(&s_snapshot_only)) {
@@ -251,6 +254,7 @@ static void save_task(void *arg)
             err = save_span((rec_span_t){ .first = next, .count = k }, first, &clip);
             if (!err) {
                 next += k;
+                atomic_store(&s_saved_end, next);
                 blocks += k;
                 parts++;
                 ESP_LOGI(TAG, "recording %" PRIu32 ": part %" PRIu32 ", %.1f s, in slot %" PRIu32, first, parts,
@@ -497,12 +501,18 @@ float recorder_level(void)
     return atomic_load(&s_level_milli) / 1000.0f;
 }
 
-uint32_t recorder_seconds(void)
+/* Blocks a new save would keep. */
+static uint32_t fresh_blocks(void)
 {
     xSemaphoreTake(s_ring_lock, portMAX_DELAY);
-    uint32_t n = s_ring.count;
+    uint32_t n = rec_ring_span_since(&s_ring, atomic_load(&s_saved_end)).count;
     xSemaphoreGive(s_ring_lock);
-    return n / REC_BLOCKS_PER_S;
+    return n;
+}
+
+uint32_t recorder_seconds(void)
+{
+    return fresh_blocks() / REC_BLOCKS_PER_S;
 }
 
 static bool saving(void)
@@ -516,6 +526,9 @@ static bool saving(void)
  * goes on until stop(). False if one is already being made. */
 static bool start(bool snapshot, bool sound)
 {
+    if (fresh_blocks() < REC_BLOCKS_PER_S) {
+        return false;   /* nothing new since the last save */
+    }
     int st = atomic_load(&s_save_state);
     if (st == REC_SAVE_BUSY || st == REC_SAVE_RECORDING ||
         !atomic_compare_exchange_strong(&s_save_state, &st, snapshot ? REC_SAVE_BUSY : REC_SAVE_RECORDING)) {
@@ -527,7 +540,7 @@ static bool start(bool snapshot, bool sound)
     /* Where the recording stands now, for its length on the screen from the
      * press on, though the flash takes seconds to catch up. */
     xSemaphoreTake(s_ring_lock, portMAX_DELAY);
-    atomic_store(&s_rec_held, s_ring.count);
+    atomic_store(&s_rec_held, rec_ring_span_since(&s_ring, atomic_load(&s_saved_end)).count);
     atomic_store(&s_rec_mark, s_ring.written);
     xSemaphoreGive(s_ring_lock);
     if (sound) {
@@ -546,13 +559,13 @@ static void stop(bool sound)
     xTaskNotifyGive(s_save_task);
 }
 
-void recorder_save(void)
+bool recorder_save(void)
 {
     if (atomic_load(&s_save_state) == REC_SAVE_RECORDING) {
         stop(true);   /* Save while recording: the recording is what's being saved */
-    } else {
-        start(true, true);
+        return true;
     }
+    return start(true, true);
 }
 
 bool recorder_can_continue(void)

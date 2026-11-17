@@ -55,6 +55,13 @@ rec_span_t rec_ring_span(const rec_ring_t *r)
     return (rec_span_t){ .first = r->written - r->count, .count = r->count };
 }
 
+rec_span_t rec_ring_span_since(const rec_ring_t *r, uint32_t since)
+{
+    uint32_t fresh = r->written - since;   /* unsigned: written may wrap */
+    uint32_t n = fresh < r->count ? fresh : r->count;
+    return (rec_span_t){ .first = r->written - n, .count = n };
+}
+
 int rec_ring_copy_span(const rec_ring_t *r, rec_span_t s, uint32_t at, uint32_t n, uint8_t *out)
 {
     if (at > s.count || n > s.count - at) {

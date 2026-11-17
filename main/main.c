@@ -130,7 +130,11 @@ static void buttons_task(void *arg)
             if (recorder_saved_ms() < CONTINUE_MS && recorder_can_continue()) {
                 recorder_continue();
             } else {
-                recorder_save();   /* saves what's held, or stops the recording going on */
+                /* Saves what's come since the last save, or stops the
+                 * recording going on. */
+                if (!recorder_save() && recorder_seconds() == 0) {
+                    ui_nothing_new();
+                }
             }
             ui_wake();   /* to show it */
         } else if (ev == HELD || ui_take_power_off()) {

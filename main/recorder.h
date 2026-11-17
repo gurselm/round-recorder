@@ -33,12 +33,14 @@ bool recorder_paused(void);
 /* The mics' loudness over the last 20 ms, 0 to 1. */
 float recorder_level(void);
 
-/* Seconds of audio held, up to CONFIG_REC_SECONDS. */
+/* Seconds a save would keep: what's held since the last save ended, up to
+ * CONFIG_REC_SECONDS. */
 uint32_t recorder_seconds(void);
 
-/* Save: what's held, as a recording of its own; while recording, it stops
- * (what's being saved is the recording). */
-void recorder_save(void);
+/* Save: what's held since the last save, as a recording of its own; while
+ * recording, it stops (what's being saved is the recording). False if
+ * nothing happened: under a second new, or a save already going. */
+bool recorder_save(void);
 /* Keep recording: the last save, carried on from where it ended as one
  * recording, while the ring still holds that point (nearly a ring's length). */
 bool recorder_can_continue(void);

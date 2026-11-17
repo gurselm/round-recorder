@@ -328,6 +328,14 @@ bool ui_take_wake_request(void)
     return atomic_exchange(&s_wake_req, false);
 }
 
+static atomic_llong s_nothing_until;   /* "Nothing new" on the screen until then */
+
+void ui_nothing_new(void)
+{
+    atomic_store(&s_nothing_until, esp_timer_get_time() + 2500000);
+    recorder_warn();
+}
+
 void ui_quiet_save(void)
 {
     atomic_store(&s_quiet, true);
@@ -795,7 +803,9 @@ static void on_save(lv_event_t *e)
         return;
     }
     atomic_store(&s_quiet, false);   /* on the screen: the name prompt follows */
-    recorder_save();
+    if (!recorder_save() && recorder_seconds() == 0) {
+        ui_nothing_new();
+    }
 }
 
 
@@ -1612,6 +1622,7 @@ static const help_line_t HELP_BOTTOM[] = {
 };
 static const help_line_t HELP_MAIN[] = {
     { "SAVE", "Keep the last 3 minutes" },
+    { "Saved again", "Only what's new since" },
     { "The ring", "Moves with the sound" },
     { "Red ring", "Recording: SAVE is STOP" },
     { LV_SYMBOL_PAUSE " Pause, held", "Stop listening" },
@@ -2376,13 +2387,22 @@ static void refresh(lv_timer_t *t)
         lv_label_set_text(s_save_sub, "tap to listen");
     } else {
         bool hint = now < s_hold_hint_us;   /* a tap on Pause */
-        lv_label_set_text(s_held, hint ? "Hold to pause" : offer ? "Saved. Press PWR again\nto keep recording"
-                                                                 : "Listening");
-        if (hint) {
+        bool nothing = now < atomic_load(&s_nothing_until);   /* a save with nothing new */
+        lv_label_set_text(s_held, nothing ? "Nothing new since\nthe last save"
+                                  : hint  ? "Hold to pause"
+                                  : offer ? "Saved. Press PWR again\nto keep recording"
+                                          : "Listening");
+        if (hint || nothing) {
             lv_obj_set_style_text_color(s_held, lv_color_white(), 0);
         }
-        format_len(recorder_seconds(), held, sizeof(held));
-        lv_label_set_text_fmt(s_save_sub, "last %s", held);   /* what SAVE would keep */
+        /* What SAVE would keep: what's come since the last save. */
+        uint32_t fresh = recorder_seconds();
+        format_len(fresh, held, sizeof(held));
+        if (fresh) {
+            lv_label_set_text_fmt(s_save_sub, "last %s", held);
+        } else {
+            lv_label_set_text(s_save_sub, "nothing new");
+        }
     }
     lv_bar_set_value(s_e_level, level / 10, LV_ANIM_OFF);   /* the mic dial's: paused or not */
 

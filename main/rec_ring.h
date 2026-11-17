@@ -52,6 +52,10 @@ typedef struct {
 
 rec_span_t rec_ring_span(const rec_ring_t *r);
 
+/* The blocks held that were written after since (in written's numbering):
+ * what a save keeps when the one before it ended at since. */
+rec_span_t rec_ring_span_since(const rec_ring_t *r, uint32_t since);
+
 /* Copies n of the span's blocks, from its block at, to out. -1 if recording
  * has overwritten any of them since. */
 int rec_ring_copy_span(const rec_ring_t *r, rec_span_t s, uint32_t at, uint32_t n, uint8_t *out);

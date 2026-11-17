@@ -41,7 +41,9 @@ with. Or build it yourself (see "Building and flashing").
 ## Using it
 
 - **SAVE** (the big button, or a tap of the top button, PWR) keeps the last
-  three minutes as a recording.
+  three minutes as a recording. Saves don't overlap: the next one keeps only
+  what's come since, so SAVE shows how much that is ("last 46 s"), or
+  "nothing new" right after a save, when a tap only sounds the low pair.
 - **Keep recording:** right after a save, the screen offers it first, or
   press PWR again within 10 s. The recording carries on from the save, as one
   recording, with the ring red and its length counting, until STOP (the big

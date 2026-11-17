@@ -181,6 +181,26 @@ static int cmd_span(void)
     CHECK(rec_ring_copy_span(&r, s, 4, 2, got) == -1);
     CHECK(rec_ring_copy_span(&r, s, 5, CAP - 5, got) == 0);
     CHECK(rec_ring_copy_span(&r, s, 5, CAP - 4, got) == -1);   /* past the span */
+
+    /* A save keeps only what's new since the one before; never more than
+     * the ring holds; nothing if nothing came since. */
+    for (int wrap = 0; wrap < 2; wrap++) {
+        rec_ring_init(&r, mem, CAP);
+        r.written = wrap ? UINT32_MAX - 30 : 0;
+        uint32_t start = r.written;
+        feed_blocks(&r, 60);
+        rec_span_t all = rec_ring_span_since(&r, start);   /* nothing saved yet: all of it */
+        CHECK(all.count == 60 && all.first == start);
+        uint32_t saved_end = all.first + all.count;
+        CHECK(rec_ring_span_since(&r, saved_end).count == 0);
+        feed_blocks(&r, 25);
+        rec_span_t fresh = rec_ring_span_since(&r, saved_end);
+        CHECK(fresh.first == saved_end && fresh.count == 25);
+        CHECK(rec_ring_copy_span(&r, fresh, 0, fresh.count, got) == 0);
+        feed_blocks(&r, 3 * CAP);   /* long since the last save: capped at what's held */
+        fresh = rec_ring_span_since(&r, saved_end);
+        CHECK(fresh.count == CAP && fresh.first == r.written - CAP);
+    }
     printf("span ok\n");
     return 0;
 }
