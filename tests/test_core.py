@@ -97,6 +97,12 @@ class RingTest(unittest.TestCase):
     def test_save_copies_in_pieces_while_recording(self):
         self.assertEqual(harness("span").strip(), "span ok")
 
+    def test_adpcm_format_is_unchanged(self):
+        # The codes for a fixed mix of sounds, and the samples decoded from
+        # them, as the board has always made them: saved recordings and
+        # pull.py's decoder depend on it.
+        self.assertEqual(harness("adpcm").split(), ["505067ed", "63e77a41"])
+
     def test_crc_is_zlibs(self):
         data = bytes(range(256)) * 41 + b"x"
         path = os.path.join(TMP, "crc.bin")

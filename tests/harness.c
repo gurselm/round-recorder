@@ -259,6 +259,42 @@ static int cmd_crc(int argc, char **argv)
     return 0;
 }
 
+/* IMA ADPCM over a fixed mix of sounds (a loud tone, noise, a quiet tone
+ * with hiss, a clipping square wave, near-silence): the CRC of the codes,
+ * then of the samples decoded from them. Any change to the format moves
+ * them. */
+static int cmd_adpcm(void)
+{
+    enum { N = 320, BLOCKS = 500 };
+    int16_t pcm[N], out[N];
+    uint8_t codes[N / 2];
+    adpcm_t enc = { 0, 0 };
+    uint32_t seed = 12345, crc_codes = 0, crc_pcm = 0;
+    for (int k = 0; k < BLOCKS; k++) {
+        adpcm_t start = enc;
+        for (int i = 0; i < N; i++) {
+            double t = (double)(k * N + i) / 16000.0, v;
+            seed = seed * 1103515245u + 12345u;
+            int noise = (int)((seed >> 8) & 0xFFFF) - 32768;
+            switch (k % 5) {
+            case 0: v = 30000 * sin(2 * M_PI * 440 * t); break;
+            case 1: v = noise; break;
+            case 2: v = 8000 * sin(2 * M_PI * 97 * t) + noise / 32; break;
+            case 3: v = (i % 40 < 20) ? 40000 : -40000; break;
+            default: v = 50 * sin(2 * M_PI * 3000 * t); break;
+            }
+            pcm[i] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+        }
+        adpcm_encode_block(&enc, pcm, N, codes);
+        crc_codes = rec_crc32(crc_codes, codes, sizeof(codes));
+        adpcm_decode_block(&start, codes, N, out);
+        crc_pcm = rec_crc32(crc_pcm, out, sizeof(out));
+        CHECK(start.pred == enc.pred && start.index == enc.index);
+    }
+    printf("%08x %08x\n", (unsigned)crc_codes, (unsigned)crc_pcm);
+    return 0;
+}
+
 static int cmd_store(void)
 {
     enum { MAX = 3000 };   /* 60 s */
@@ -592,6 +628,7 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "ring")) return cmd_ring(argc, argv);
     if (!strcmp(argv[1], "decode")) return cmd_decode(argc, argv);
     if (!strcmp(argv[1], "crc")) return cmd_crc(argc, argv);
+    if (!strcmp(argv[1], "adpcm")) return cmd_adpcm();
     if (!strcmp(argv[1], "tempo")) return cmd_tempo(argc, argv);
     if (!strcmp(argv[1], "multitap")) return cmd_multitap(argc, argv);
     if (!strcmp(argv[1], "store")) return cmd_store();
