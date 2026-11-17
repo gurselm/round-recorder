@@ -64,8 +64,9 @@ with. Or build it yourself (see "Building and flashing").
 - **Screen:** laid out for a round screen. SAVE is the round button in the
   middle, with how much it would keep inside it. Round it, four bands fill
   the circle: on the left your audio, Pause above and the recordings below
-  (how many, and how many more saves fit: amber at the last one, red when
-  full); on the right the device, Help above and Settings below, beside the
+  (how many, big, and how many more saves fit: amber at the last one; Full
+  in amber once saves replace the oldest, in red when every one is
+  protected and a save can't); on the right the device, Help above and Settings below, beside the
   side buttons, where a finger brushing the screen only opens something.
   What's going on reads above them, the battery below. The ring around the
   rim moves with the sound while listening, sweeps while saving and fills

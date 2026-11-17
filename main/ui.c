@@ -1631,6 +1631,7 @@ static const help_line_t HELP_MAIN[] = {
     { LV_SYMBOL_LIST " Recordings", "Play, protect, delete" },
     { LV_SYMBOL_SETTINGS " Settings", "Sound, screen, storage" },
     { "9 more fit", "Then saves replace the oldest" },
+    { "Full, in red", "All protected: unprotect one" },
 };
 static const help_line_t HELP_LIST[] = {
     { "Tap one", "Play it" },
@@ -1783,7 +1784,7 @@ enum { BAND_PAUSE, BAND_HELP, BAND_SET, BAND_LIST, BANDS };
 #define BAND_RI 108   /* inner radius: 10 px clear of SAVE's 98 */
 #define BAND_RO 208   /* outer: inside the arc beside PWR (from 211) and the ring */
 #define BAND_GAP 2    /* degrees each side of a band left empty */
-#define BAND_PAD 4    /* a band's words keep this far from its edges, where they can */
+#define BAND_PAD 4    /* a band's words keep at least this far from its edges */
 
 /* Compass degrees, 0 at the top, clockwise. */
 static const int16_t BAND_DEG[BANDS][2] = {
@@ -1930,10 +1931,12 @@ static lv_obj_t *band(int i, const char *icon, const lv_font_t *icon_font, const
     lv_obj_set_style_text_font(s_band_icon[i], icon_font, 0);
     lv_label_set_text(s_band_icon[i], icon);
     s_band_text[i] = lv_label_create(col);
+    lv_obj_set_style_text_font(s_band_text[i], &lv_font_montserrat_18, 0);   /* fits each band's middle */
     lv_obj_set_style_text_align(s_band_text[i], LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_band_text[i], text);
     if (sub) {
         s_band_sub[i] = lv_label_create(col);
+        lv_obj_set_style_text_font(s_band_sub[i], &lv_font_montserrat_18, 0);
         lv_obj_set_style_text_color(s_band_sub[i], DIM, 0);
         lv_label_set_text(s_band_sub[i], "");
     }
@@ -1954,44 +1957,34 @@ static float band_clearance(int i, float x, float y)
     return fminf(fminf(r - BAND_RI, BAND_RO - r), side);
 }
 
-/* Band i's icon and words in the band's middle if they fit there with
- * BAND_PAD to spare, else as near it as they do; if they fit nowhere, where
- * they come closest. The bands are about 100 px thick, so a long line has
- * to move to where the band runs across it. Runs again when the words
- * change. Logs if they poke out, so a new wording can't do it quietly. */
+/* Band i's icon and words at the band's middle, all four alike. Each line
+ * is checked on its own (a narrow icon over a wide word leaves the box's
+ * corner empty), and a warning is logged if one pokes out, or comes closer
+ * than BAND_PAD to an edge, so a new wording can't do it quietly. Runs
+ * again when the words change. */
 static void place_band_label(int i)
 {
     lv_obj_t *col = s_band_col[i];
+    float a = (BAND_DEG[i][0] + BAND_DEG[i][1]) / 2.0f * (float)M_PI / 180.0f, r = (BAND_RI + BAND_RO) / 2.0f;
+    lv_obj_align(col, LV_ALIGN_CENTER, (int32_t)lroundf(r * sinf(a)), (int32_t)lroundf(-r * cosf(a)));
     lv_obj_update_layout(col);
-    float w = (float)lv_obj_get_width(col), h = (float)lv_obj_get_height(col);
-    float mid_deg = (BAND_DEG[i][0] + BAND_DEG[i][1]) / 2.0f, mid_r = (BAND_RI + BAND_RO) / 2.0f;
-    float best = -1e9f, margin = 0, bx = 0, by = 0;
-    for (float deg = BAND_DEG[i][0]; deg <= BAND_DEG[i][1]; deg += 2.0f) {
-        for (float r = BAND_RI; r <= BAND_RO; r += 3.0f) {
-            float a = deg * (float)M_PI / 180.0f, cx = r * sinf(a), cy = -r * cosf(a);
-            float worst = 1e9f;
-            /* The box's corners and the middles of its sides. */
-            for (int k = 0; k < 8; k++) {
-                static const int8_t U[8][2] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 },
-                                                { 1, 1 },   { 0, 1 },  { -1, 1 }, { -1, 0 } };
-                worst = fminf(worst, band_clearance(i, cx + U[k][0] * w / 2, cy + U[k][1] * h / 2));
-            }
-            /* Any spot with room to spare beats any without; among those,
-             * the nearer the middle the better. */
-            float off = fabsf(deg - mid_deg) * (float)M_PI / 180.0f * mid_r + fabsf(r - mid_r);
-            float score = worst >= BAND_PAD ? 1000.0f - off : worst * 10.0f - off * 0.01f;
-            if (score > best) {
-                best = score;
-                margin = worst;
-                bx = cx;
-                by = cy;
-            }
+    float margin = 1e9f;
+    for (uint32_t c = 0; c < lv_obj_get_child_count(col); c++) {
+        lv_obj_t *line = lv_obj_get_child(col, (int32_t)c);
+        if (lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN)) {
+            continue;
         }
+        lv_area_t box;
+        lv_obj_get_coords(line, &box);
+        /* Its corners, from the screen's centre. */
+        float x0 = box.x1 - BSP_LCD_H_RES / 2.0f, x1 = box.x2 + 1 - BSP_LCD_H_RES / 2.0f;
+        float y0 = box.y1 - BSP_LCD_V_RES / 2.0f, y1 = box.y2 + 1 - BSP_LCD_V_RES / 2.0f;
+        margin = fminf(margin, fminf(fminf(band_clearance(i, x0, y0), band_clearance(i, x1, y0)),
+                                     fminf(band_clearance(i, x0, y1), band_clearance(i, x1, y1))));
     }
-    lv_obj_align(col, LV_ALIGN_CENTER, (int32_t)lroundf(bx), (int32_t)lroundf(by));
-    if (margin < 0) {   /* measured at the box's corners, which words rarely reach */
-        ESP_LOGW(TAG, "band %d: \"%s\" (%dx%d) doesn't fit, margin %.0f px", i, lv_label_get_text(s_band_text[i]),
-                 (int)w, (int)h, margin);
+    if (margin < BAND_PAD) {
+        ESP_LOGW(TAG, "band %d: \"%s\" is %.0f px from its band's edge", i, lv_label_get_text(s_band_text[i]),
+                 margin);
     }
 }
 
@@ -2014,14 +2007,14 @@ static void build_bands(void)
     lv_obj_add_event_cb(s_band[BAND_HELP], on_open_help, LV_EVENT_CLICKED, NULL);
     band(BAND_SET, LV_SYMBOL_SETTINGS, &lv_font_montserrat_20, "Settings", false);
     lv_obj_add_event_cb(s_band[BAND_SET], on_open_settings, LV_EVENT_CLICKED, NULL);
-    band(BAND_LIST, LV_SYMBOL_LIST, &lv_font_montserrat_20, LV_SYMBOL_LIST "  0", true);
+    band(BAND_LIST, LV_SYMBOL_LIST, &lv_font_montserrat_20, LV_SYMBOL_LIST " 0", true);
     /* The icon and the count on one line, big; how many more fit small
      * under it: the band is only so wide. */
     lv_obj_add_flag(s_band_icon[BAND_LIST], LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_text_font(s_band_text[BAND_LIST], &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_font(s_band_sub[BAND_LIST], &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_align(s_band_sub[BAND_LIST], LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_pad_row(s_band_col[BAND_LIST], 2, 0);   /* "Full: / oldest goes" fits */
+    lv_obj_set_style_pad_row(s_band_col[BAND_LIST], 2, 0);
     lv_obj_add_event_cb(s_band[BAND_LIST], on_open_list, LV_EVENT_CLICKED, NULL);
     for (int i = 0; i < BANDS; i++) {
         place_band_label(i);
@@ -2314,18 +2307,18 @@ static void show_room(int n)
     uint32_t slots = recorder_slots(), free = slots > used ? slots - used : 0;
     /* The count big, by the list icon; under it how many more saves fit. */
     char count[24], room[24];
-    snprintf(count, sizeof(count), LV_SYMBOL_LIST "  %d", n);
+    snprintf(count, sizeof(count), LV_SYMBOL_LIST " %d", n);
     lv_obj_t *sub = s_band_sub[BAND_LIST];
     if (free == 1) {
         snprintf(room, sizeof(room), "1 more fits");
     } else if (free) {
         snprintf(room, sizeof(room), "%" PRIu32 " more fit", free);
     } else {
-        snprintf(room, sizeof(room), "%s", replaceable ? "Full:\noldest goes" : "Full");
+        snprintf(room, sizeof(room), "Full");   /* amber: saves replace the oldest; red: they can't */
     }
     set_band_text(BAND_LIST, s_band_text[BAND_LIST], count);
     set_band_text(BAND_LIST, sub, room);
-    lv_obj_set_style_text_color(sub, free > 1 ? DIM : free == 1 ? AMBER : RED, 0);
+    lv_obj_set_style_text_color(sub, free > 1 ? DIM : free == 1 || replaceable ? AMBER : RED, 0);
 }
 
 /* The dim ring's tick: once a second, its state; every minute it moves a
