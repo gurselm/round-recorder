@@ -1784,7 +1784,7 @@ enum { BAND_PAUSE, BAND_HELP, BAND_SET, BAND_LIST, BANDS };
 #define BAND_RI 108   /* inner radius: 10 px clear of SAVE's 98 */
 #define BAND_RO 208   /* outer: inside the arc beside PWR (from 211) and the ring */
 #define BAND_GAP 2    /* degrees each side of a band left empty */
-#define BAND_PAD 4    /* a band's words keep at least this far from its edges */
+#define BAND_PAD 3    /* a band's words keep at least this far from its edges */
 
 /* Compass degrees, 0 at the top, clockwise. */
 static const int16_t BAND_DEG[BANDS][2] = {
@@ -1999,13 +1999,13 @@ static void set_band_text(int i, lv_obj_t *label, const char *text)
 
 static void build_bands(void)
 {
-    band(BAND_PAUSE, LV_SYMBOL_PAUSE, &lv_font_montserrat_20, "Pause", true);
+    band(BAND_PAUSE, LV_SYMBOL_PAUSE, &lv_font_montserrat_28, "Pause", true);
     lv_label_set_text(s_band_sub[BAND_PAUSE], "hold");
     lv_obj_set_style_arc_color(s_band[BAND_PAUSE], AMBER, LV_STATE_CHECKED);   /* paused: Resume */
     lv_obj_add_event_cb(s_band[BAND_PAUSE], on_pause_band, LV_EVENT_ALL, NULL);
-    band(BAND_HELP, "?", &lv_font_montserrat_28, "Help", false);
+    band(BAND_HELP, "?", &lv_font_montserrat_34, "Help", false);
     lv_obj_add_event_cb(s_band[BAND_HELP], on_open_help, LV_EVENT_CLICKED, NULL);
-    band(BAND_SET, LV_SYMBOL_SETTINGS, &lv_font_montserrat_20, "Settings", false);
+    band(BAND_SET, LV_SYMBOL_SETTINGS, &lv_font_montserrat_28, "Settings", false);
     lv_obj_add_event_cb(s_band[BAND_SET], on_open_settings, LV_EVENT_CLICKED, NULL);
     band(BAND_LIST, LV_SYMBOL_LIST, &lv_font_montserrat_20, LV_SYMBOL_LIST " 0", true);
     /* The icon and the count on one line, big; how many more fit small
