@@ -23,6 +23,7 @@ static atomic_int s_utc_offset;
 static atomic_int s_brightness = 100;
 static atomic_int s_aod = 1;          /* the ring stays, dim, with the screen off */
 static atomic_int s_tap_wake;
+static atomic_int s_standby;       /* sleeps when quiet and still, off USB */
 static atomic_int s_intro_seen;
 static atomic_int s_tour_seen;
 static uint32_t s_boot;             /* this boot's number, counted in NVS */
@@ -63,6 +64,7 @@ esp_err_t settings_init(void)
         load(h, "brightness", &s_brightness, 10, 100);
         load(h, "aod", &s_aod, 0, 1);
         load(h, "tap_wake", &s_tap_wake, 0, 1);
+        load(h, "standby", &s_standby, 0, 1);
         load(h, "intro_seen", &s_intro_seen, 0, 1);
         load(h, "tour", &s_tour_seen, 0, 1);
         nvs_close(h);
@@ -77,10 +79,10 @@ esp_err_t settings_init(void)
         nvs_close(h);
     }
     atomic_store(&s_gain, atomic_load(&s_gain) / 3 * 3);
-    ESP_LOGI(TAG, "mic gain %d dB, volume %d, screen off after %d s, sounds %s, ring %s, tap to wake %s, boot %" PRIu32,
+    ESP_LOGI(TAG, "mic gain %d dB, volume %d, screen off after %d s, sounds %s, ring %s, tap to wake %s, standby %s, boot %" PRIu32,
              atomic_load(&s_gain), atomic_load(&s_volume), atomic_load(&s_screen_off),
              atomic_load(&s_sounds) ? "on" : "off", atomic_load(&s_aod) ? "on" : "off",
-             atomic_load(&s_tap_wake) ? "on" : "off", s_boot);
+             atomic_load(&s_tap_wake) ? "on" : "off", atomic_load(&s_standby) ? "on" : "off", s_boot);
     return ESP_OK;
 }
 
@@ -114,6 +116,18 @@ bool settings_tap_wake(void)
 void settings_set_tap_wake(bool on)
 {
     if (atomic_exchange(&s_tap_wake, on) != on) {
+        changed();
+    }
+}
+
+bool settings_standby(void)
+{
+    return atomic_load(&s_standby);
+}
+
+void settings_set_standby(bool on)
+{
+    if (atomic_exchange(&s_standby, on) != on) {
         changed();
     }
 }
@@ -240,6 +254,7 @@ void settings_commit(void)
         nvs_set_i32(h, "brightness", atomic_load(&s_brightness));
         nvs_set_i32(h, "aod", atomic_load(&s_aod));
         nvs_set_i32(h, "tap_wake", atomic_load(&s_tap_wake));
+        nvs_set_i32(h, "standby", atomic_load(&s_standby));
         nvs_set_i32(h, "intro_seen", atomic_load(&s_intro_seen));
         nvs_set_i32(h, "tour", atomic_load(&s_tour_seen));
         err = nvs_commit(h);

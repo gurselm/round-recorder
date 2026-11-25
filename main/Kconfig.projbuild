@@ -60,4 +60,14 @@ menu "Round recorder"
         help
             Until it's changed in Settings on the board.
 
+    config REC_STANDBY_AFTER_S
+        int "With Standby on, sleep after this long quiet and still"
+        range 10 3600
+        default 600
+        help
+            Off USB, with Standby when quiet on in Settings: after this many
+            seconds with nothing heard and no movement, the board sleeps,
+            waking every 1 to 4 s to listen for a moment. Sound, a move or a
+            button has it listening again.
+
 endmenu

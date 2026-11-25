@@ -8,16 +8,22 @@
  * a low battery saves and powers off itself.
  * Bottom button (BOOT): screen on or off. The screen goes off by itself after
  * the time set in Settings; touch can't wake it, a button can.
+ * Standby (Settings, off by default): off USB, quiet and still for a while,
+ * the chip sleeps between short checks for sound.
  */
+#include <inttypes.h>
+
 #include "audio.h"
 #include "bsp/esp-bsp.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_pm.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "batt_log.h"
+#include "motion.h"
 #include "pmu.h"
 #include "recorder.h"
 #include "settings.h"
@@ -35,6 +41,11 @@ static const char *TAG = "main";
 #define FINISH_MS 30000        /* the longest a last save may take before the power goes */
 #define WARN_PCT 15            /* off USB: a sound and a line on the screen, once */
 #define CONTINUE_MS 10000      /* after a save, PWR again keeps recording; the screen says so */
+#define STILL_EVERY_US 1000000 /* the motion sensor, read while listening */
+#define CHECK_FIRST_MS 1000    /* standby: asleep this long before the first check for sound, */
+#define CHECK_MAX_MS 4000      /* doubling up to this */
+#define LISTEN_MS 250          /* each check awake: 100 ms to settle, the rest heard */
+#define HEARD_READS 2          /* 20 ms reads over the room's hum in a check: sound */
 
 typedef struct {
     gpio_num_t pin;
@@ -85,7 +96,7 @@ static void check_battery(void)
     if (pmu_read_power(&p) != ESP_OK) {
         return;
     }
-    batt_log_sample(&p, ui_awake(), recorder_recording() != 0);
+    batt_log_sample(&p, ui_awake(), recorder_recording() != 0, recorder_standby());
     bool on_battery = !p.usb && p.battery_pct >= 0;
     if (!on_battery || p.battery_pct > WARN_PCT) {
         warned = false;
@@ -108,6 +119,70 @@ static void check_battery(void)
     power_off("battery low");
 }
 
+static int64_t s_moved_at;   /* when the board last moved, us */
+
+/* Standby's way in: Settings has it on, it's off USB with nothing going on
+ * and the screen off, and it has been quiet and still for a while. */
+static bool standby_due(int64_t now)
+{
+    pmu_power_t p;
+    rec_play_t play;
+    recorder_play_status(&play);
+    rec_save_state_t save = recorder_save_state();
+    uint32_t after_ms = CONFIG_REC_STANDBY_AFTER_S * 1000;
+    return settings_standby() && motion_ok() && pmu_last_power(&p) == ESP_OK && !p.usb && !p.charging &&
+           !ui_awake() && !recorder_paused() && !play.first && save != REC_SAVE_BUSY &&
+           save != REC_SAVE_RECORDING && recorder_quiet_ms() >= after_ms && now - s_moved_at >= after_ms * 1000LL;
+}
+
+/* Sleeps, waking to listen for a moment: after 1 s, then 2, then 4 s
+ * apart. Sound, a move, USB or a button has it listening again; a button
+ * press is then handled as usual. The ring keeps what it held. */
+static void standby(int64_t *battery_at)
+{
+    recorder_set_standby(true);
+    gpio_wakeup_enable(PWR_GPIO, GPIO_INTR_HIGH_LEVEL);
+    gpio_wakeup_enable(BOOT_GPIO, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    uint32_t sleep_ms = CHECK_FIRST_MS, checks = 0;
+    const char *why = NULL;
+    while (!why) {
+        esp_sleep_enable_timer_wakeup(sleep_ms * 1000ULL);
+        esp_light_sleep_start();
+        checks++;
+        if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO) {
+            why = "a button";
+            break;
+        }
+        uint32_t heard = recorder_heard();
+        vTaskDelay(pdMS_TO_TICKS(LISTEN_MS));
+        int64_t now = esp_timer_get_time();
+        if (recorder_heard() - heard >= HEARD_READS) {
+            why = "sound";
+        } else if (motion_moved()) {
+            s_moved_at = now;
+            why = "a move";
+        } else if (ui_awake()) {
+            why = "the screen";
+        }
+        if (now - *battery_at > BATTERY_EVERY_US) {
+            *battery_at = now;
+            check_battery();   /* at a low battery it saves and powers off from here */
+        }
+        pmu_power_t p;
+        if (!why && pmu_last_power(&p) == ESP_OK && (p.usb || p.charging)) {
+            why = "USB";
+        }
+        sleep_ms = sleep_ms * 2 > CHECK_MAX_MS ? CHECK_MAX_MS : sleep_ms * 2;
+    }
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+    gpio_wakeup_disable(PWR_GPIO);
+    gpio_wakeup_disable(BOOT_GPIO);
+    recorder_set_standby(false);
+    ESP_LOGI(TAG, "standby ended by %s after %" PRIu32 " checks", why, checks);
+}
+
 static void buttons_task(void *arg)
 {
     gpio_config_t io = {
@@ -118,7 +193,8 @@ static void buttons_task(void *arg)
     /* PWR may still be held from turning the board on: that isn't a press. */
     button_t pwr = { .pin = PWR_GPIO, .active = 1, .down = gpio_get_level(PWR_GPIO) == 1 };
     button_t boot = { .pin = BOOT_GPIO, .active = 0, .down = gpio_get_level(BOOT_GPIO) == 0 };
-    int64_t battery_at = 0;
+    int64_t battery_at = 0, still_at = 0;
+    s_moved_at = esp_timer_get_time();
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(20));
         int64_t now = esp_timer_get_time();
@@ -160,6 +236,15 @@ static void buttons_task(void *arg)
         }
         ui_sleep_if_idle((uint32_t)settings_screen_off_s() * 1000);
         settings_commit();
+        if (now - still_at > STILL_EVERY_US) {
+            still_at = now;
+            if (motion_moved()) {
+                s_moved_at = now;
+            }
+            if (standby_due(now)) {
+                standby(&battery_at);
+            }
+        }
     }
 }
 
@@ -175,6 +260,7 @@ void app_main(void)
         /* Only DCDC1 (VCC3V3) and ALDO1 (A3V3, the codecs) feed anything. */
         pmu_keep_rails(BIT(0), BIT(0));
     }
+    motion_init(bsp_i2c_get_handle());   /* without it, no standby */
     ESP_ERROR_CHECK(settings_init());
     ESP_ERROR_CHECK(audio_init(settings_mic_gain_db(), settings_volume()));
     ESP_ERROR_CHECK(recorder_start());

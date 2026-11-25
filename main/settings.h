@@ -22,6 +22,7 @@ int settings_utc_offset(void);     /* seconds, as pull.py last set the clock */
 int settings_brightness(void);     /* the screen's, 10 to 100 % */
 bool settings_aod(void);           /* with the screen off, the ring stays on, dim */
 bool settings_tap_wake(void);      /* a tap on the dim ring wakes the screen */
+bool settings_standby(void);       /* off USB, quiet and still for a while: sleeps between checks */
 bool settings_intro_seen(void);    /* the buttons' first-run screen, once */
 bool settings_tour_seen(void);     /* the tour, shown the first time ? is tapped */
 uint32_t settings_boot(void);      /* this boot's number, counted across restarts */
@@ -35,6 +36,7 @@ void settings_set_utc_offset(int s);
 void settings_set_brightness(int pct);   /* ui.c sends it to the panel */
 void settings_set_aod(bool on);
 void settings_set_tap_wake(bool on);
+void settings_set_standby(bool on);
 void settings_set_intro_seen(void);
 void settings_set_tour_seen(void);
 

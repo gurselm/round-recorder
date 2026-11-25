@@ -28,6 +28,10 @@ static const char *TAG = "recorder";
 #define PLAY_BATCH 25   /* blocks read from flash at a time: half a second */
 #define COPY_BATCH 250  /* blocks a save copies per hold of the ring's lock: 41 KB, a few ms */
 #define GAP_US 60000    /* a mic read this late means the I2S DMA nearly overran */
+#define SETTLE_READS 5          /* 100 ms not judged for sound after a start or a sleep */
+#define FLOOR_RISE_DB 0.002f    /* a 20 ms read */
+#define HEARD_DB 15.0f
+#define HEARD_MIN_DBFS -60.0f
 #define PART_MARGIN (5 * REC_BLOCKS_PER_S)   /* a part goes to flash this long before the ring would lose it */
 #define MAX_REC_BLOCKS (CONFIG_REC_KEEP_MAX_S * REC_BLOCKS_PER_S)
 
@@ -47,7 +51,10 @@ static TaskHandle_t s_save_task, s_play_task;
 static uint32_t s_max_parts;
 
 static atomic_bool s_paused;
+static atomic_bool s_standby;           /* asleep between checks: heard, not kept */
 static atomic_int s_level_milli;
+static atomic_llong s_heard_at;         /* when the mics last heard more than the room's hum, us */
+static atomic_uint s_heard;             /* 20 ms reads that did, counted */
 static atomic_int s_save_state;
 static atomic_bool s_stop_req;          /* end the recording */
 static atomic_bool s_snapshot_only;     /* Save: what's held, and no more */
@@ -114,20 +121,39 @@ static void audio_task(void *arg)
 {
     static int16_t pcm[AUDIO_CHUNK];
     int64_t last = 0;
+    float floor = 0;   /* dBFS; starts high and drops to the room's at once */
+    int settle = SETTLE_READS;
     for (;;) {
         if (audio_read(pcm, AUDIO_CHUNK) != ESP_OK) {
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
         int64_t now = esp_timer_get_time();
+        bool standby = atomic_load(&s_standby);
         if (last && now - last > GAP_US) {
-            ESP_LOGW(TAG, "mic read %lld ms after the last", (now - last) / 1000);
+            if (!standby) {
+                ESP_LOGW(TAG, "mic read %lld ms after the last", (now - last) / 1000);
+            }
+            settle = SETTLE_READS;   /* after a sleep: old DMA buffers, and the codec's clock just back */
         }
         last = now;
+        float db = audio_dbfs(pcm, AUDIO_CHUNK);
         /* Map -60..-10 dBFS onto 0..1 for the meter. */
-        float level = (audio_dbfs(pcm, AUDIO_CHUNK) + 60.0f) / 50.0f;
+        float level = (db + 60.0f) / 50.0f;
         atomic_store(&s_level_milli, (int)(1000 * (level < 0 ? 0 : level > 1 ? 1 : level)));
-        if (!atomic_load(&s_paused)) {
+        if (settle) {
+            settle--;
+        } else {
+            /* The room's hum: down at once to a quieter read, up slowly
+             * (6 dB a minute), so pauses in speech keep it low. Heard:
+             * HEARD_DB over it, and over a floor for a silent room. */
+            floor = db < floor ? db : floor + FLOOR_RISE_DB;
+            if (db > floor + HEARD_DB && db > HEARD_MIN_DBFS) {
+                atomic_store(&s_heard_at, now);
+                atomic_fetch_add(&s_heard, 1);
+            }
+        }
+        if (!atomic_load(&s_paused) && !standby) {
             xSemaphoreTake(s_ring_lock, portMAX_DELAY);
             rec_ring_feed(&s_ring, pcm, AUDIO_CHUNK);
             xSemaphoreGive(s_ring_lock);
@@ -496,6 +522,29 @@ void recorder_set_paused(bool paused)
 bool recorder_paused(void)
 {
     return atomic_load(&s_paused);
+}
+
+void recorder_set_standby(bool on)
+{
+    if (atomic_exchange(&s_standby, on) != on) {
+        ESP_LOGI(TAG, "%s", on ? "standby: quiet and still" : "listening");
+    }
+}
+
+bool recorder_standby(void)
+{
+    return atomic_load(&s_standby);
+}
+
+uint32_t recorder_quiet_ms(void)
+{
+    int64_t at = atomic_load(&s_heard_at);
+    return (uint32_t)((esp_timer_get_time() - at) / 1000);
+}
+
+uint32_t recorder_heard(void)
+{
+    return atomic_load(&s_heard);
 }
 
 float recorder_level(void)

@@ -31,6 +31,16 @@ esp_err_t recorder_start(void);
 void recorder_set_paused(bool paused);
 bool recorder_paused(void);
 
+/* Standby: the board sleeps between short checks for sound, so nothing
+ * goes into the ring; what it held before stays. */
+void recorder_set_standby(bool on);
+bool recorder_standby(void);
+/* Since the mics last heard more than the room's steady hum (10 dB over
+ * it), ms; from boot if never. */
+uint32_t recorder_quiet_ms(void);
+/* 20 ms reads that heard that, counted: a check compares two. */
+uint32_t recorder_heard(void);
+
 /* The mics' loudness over the last 20 ms, 0 to 1. */
 float recorder_level(void);
 

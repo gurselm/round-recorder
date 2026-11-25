@@ -70,7 +70,7 @@ static const int OFF_STEPS[] = { 10, 15, 30, 60, 120, 300 };   /* screen-off cho
 static lv_obj_t *s_main, *s_list_screen, *s_settings_screen, *s_ring;
 
 /* The settings a dial edits (Settings' rows), and the dial's screen. */
-enum { SET_GAIN, SET_VOLUME, SET_BRIGHT, SET_OFF, SET_DIALS, SET_SOUNDS = SET_DIALS, SET_AOD, SET_TAP, SET_ROWS };
+enum { SET_GAIN, SET_VOLUME, SET_BRIGHT, SET_OFF, SET_DIALS, SET_SOUNDS = SET_DIALS, SET_AOD, SET_TAP, SET_STANDBY, SET_ROWS };
 static lv_obj_t *s_set_list, *s_set_sub[SET_ROWS], *s_storage_sub;
 static lv_obj_t *s_c_title, *s_c_why, *s_c_icon, *s_c_caption;   /* the confirm screen's */
 static void (*s_confirm_do)(void);
@@ -871,8 +871,15 @@ static void format_setting(int kind, int value, char *out, size_t n)
     case SET_OFF: snprintf(out, n, value < 60 ? "%d s" : "%d min", value < 60 ? value : value / 60); break;
     case SET_SOUNDS: snprintf(out, n, "%s", settings_sounds() ? "On" : "Off"); break;
     case SET_AOD: snprintf(out, n, "%s", settings_aod() ? "On: dim ring, screen off" : "Off"); break;
-    default:
+    case SET_TAP:
         snprintf(out, n, "%s", !settings_aod() ? "Needs the always-on ring" : settings_tap_wake() ? "On" : "Off");
+        break;
+    default:
+        if (settings_standby()) {
+            snprintf(out, n, "On: sleeps after %d min", CONFIG_REC_STANDBY_AFTER_S / 60);
+        } else {
+            snprintf(out, n, "Off");
+        }
         break;
     }
 }
@@ -960,6 +967,9 @@ static void on_set_row(lv_event_t *e)
             settings_set_tap_wake(!settings_tap_wake());
         }
         ESP_LOGI(TAG, "tap to wake %s%s", settings_tap_wake() ? "on" : "off", settings_aod() ? "" : " (no ring)");
+    } else if (kind == SET_STANDBY) {
+        settings_set_standby(!settings_standby());
+        ESP_LOGI(TAG, "standby when quiet %s", settings_standby() ? "on" : "off");
     } else {
         open_dial(kind);
         return;
@@ -1404,7 +1414,7 @@ static void build_settings(void)
     s_set_list = round_list(s_settings_screen);
     round_row(s_set_list, LV_SYMBOL_LEFT " Back", NULL, NULL, on_back, NULL);
     static const char *const ROWS[] = { "Mic sensitivity", "Speaker volume", "Brightness", "Screen off after",
-                                        "Sounds", "Always-on ring", "Tap to wake" };
+                                        "Sounds", "Always-on ring", "Tap to wake", "Standby when quiet" };
     for (int k = 0; k < SET_ROWS; k++) {
         round_row(s_set_list, ROWS[k], "", &s_set_sub[k], on_set_row, (void *)(intptr_t)k);
     }
@@ -2372,7 +2382,11 @@ static bool aod_tick(uint32_t *ticks)
                                LV_PART_INDICATOR);
     char len[16];
     format_len(recorder_recording_seconds(), len, sizeof(len));
-    lv_label_set_text_fmt(s_aod_text, "%s%s", recording ? "REC " : recorder_paused() ? "Paused" : "",
+    lv_label_set_text_fmt(s_aod_text, "%s%s",
+                          recording                ? "REC "
+                          : recorder_paused()      ? "Paused"
+                          : recorder_standby()     ? "Standby"
+                                                   : "",
                           recording ? len : "");
     lv_obj_set_y(s_aod_text, (int32_t)(minute % 5) * 3);
     return true;

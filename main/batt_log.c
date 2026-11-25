@@ -97,12 +97,12 @@ static void start(void)
     ESP_LOGI(TAG, "log %u started: off USB", s_session);
 }
 
-void batt_log_sample(const pmu_power_t *p, bool screen_on, bool recording)
+void batt_log_sample(const pmu_power_t *p, bool screen_on, bool recording, bool standby)
 {
     if (!s_part || p->battery_pct < 0) {
         return;
     }
-    s_seen |= (screen_on ? BATT_SCREEN : 0) | (recording ? BATT_RECORDING : 0);
+    s_seen |= (screen_on ? BATT_SCREEN : 0) | (recording ? BATT_RECORDING : 0) | (standby ? BATT_STANDBY : 0);
     int64_t now = esp_timer_get_time();
     bool on_battery = !p->usb && !p->charging;
     if (!on_battery) {

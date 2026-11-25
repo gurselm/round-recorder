@@ -23,6 +23,7 @@ enum {
     BATT_RECORDING = 8,    /* a recording was going on during the minute */
     BATT_OFF = 16,         /* the board powered off */
     BATT_BOOT = 32,        /* turned on again since the entry before */
+    BATT_STANDBY = 64,     /* in standby during the minute: asleep between checks for sound */
 };
 
 /* The flash past the last recording slot (recorder_spare()); does nothing
@@ -30,7 +31,7 @@ enum {
 esp_err_t batt_log_init(void);
 
 /* Every few seconds, with the power chip's reading. */
-void batt_log_sample(const pmu_power_t *p, bool screen_on, bool recording);
+void batt_log_sample(const pmu_power_t *p, bool screen_on, bool recording, bool standby);
 
 /* Right before powering off. */
 void batt_log_power_off(void);

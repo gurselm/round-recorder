@@ -286,7 +286,7 @@ def read_text(wav):
         return ""
 
 
-BATT_USB, BATT_CHARGING, BATT_SCREEN, BATT_RECORDING, BATT_OFF, BATT_BOOT = 1, 2, 4, 8, 16, 32
+BATT_USB, BATT_CHARGING, BATT_SCREEN, BATT_RECORDING, BATT_OFF, BATT_BOOT, BATT_STANDBY = 1, 2, 4, 8, 16, 32, 64
 
 
 def battery(board, csv_path=None):
@@ -305,10 +305,11 @@ def battery(board, csv_path=None):
             raise RuntimeError(f"battery log: {reply[4:]}")
     if csv_path:
         with open(csv_path, "w") as f:
-            f.write("minute,mV,percent,screen,recording,usb,off,boot\n")
+            f.write("minute,mV,percent,screen,recording,usb,off,boot,standby\n")
             for m, mv, pct, fl in rows:
                 f.write(f"{m},{mv},{pct},{int(bool(fl & BATT_SCREEN))},{int(bool(fl & BATT_RECORDING))},"
-                        f"{int(bool(fl & BATT_USB))},{int(bool(fl & BATT_OFF))},{int(bool(fl & BATT_BOOT))}\n")
+                        f"{int(bool(fl & BATT_USB))},{int(bool(fl & BATT_OFF))},{int(bool(fl & BATT_BOOT))},"
+                        f"{int(bool(fl & BATT_STANDBY))}\n")
         print(f"{len(rows)} entries written to {csv_path}")
     if not rows:
         print("No battery log yet: it starts when the board comes off USB.")
@@ -322,11 +323,13 @@ def battery(board, csv_path=None):
     screen = sum(1 for r in on_batt if r[3] & BATT_SCREEN)
     recording = sum(1 for r in on_batt if r[3] & BATT_RECORDING)
     boots = sum(1 for r in on_batt if r[3] & BATT_BOOT)
+    standby = sum(1 for r in on_batt if r[3] & BATT_STANDBY)
     print(f"On battery {minutes // 60} h {minutes % 60:02d} min, {end}.")
     print(f"  {first[2]}% ({first[1]} mV) to {last[2]}% ({last[1]} mV)")
     n = max(len(on_batt), 1)
     print(f"  screen on in {screen} of {len(on_batt)} minutes ({100 * screen // n}%), "
-          f"recording in {recording}" + (f", turned on again {boots}x" if boots else ""))
+          f"recording in {recording}" + (f", standby in {standby}" if standby else "")
+          + (f", turned on again {boots}x" if boots else ""))
     fallen = first[2] - last[2]
     if minutes >= 30 and fallen >= 3:
         per_hour = fallen / (minutes / 60)

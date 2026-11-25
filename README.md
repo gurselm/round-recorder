@@ -118,7 +118,8 @@ with. Or build it yourself (see "Building and flashing").
 - **Settings:** mic sensitivity, speaker volume, brightness and how soon the
   screen turns off each open a dial: drag round the rim, the value in the
   middle (mic sensitivity shows a level; volume beeps when you let go). Then
-  sounds, the always-on ring and tap to wake, on or off; storage (used,
+  sounds, the always-on ring, tap to wake and standby when quiet, on or off;
+  storage (used,
   protected, downloaded); and Power off. Changes take effect at once and are kept across restarts.
 
 There are 20 slots of 3 minutes each, an hour in all. A recording longer than that is written in
@@ -133,10 +134,19 @@ and time. Clips saved before it are named by their number.
 
 ## Battery life
 
-Recording never stops, so the chip can't sleep: the I2S that reads the mics
-keeps it awake at 80 MHz or more. Measured on one board, recording with the
-screen off nearly all the time: 5 h 57 min from full to the power-off at
-3 %. The screen adds a lot while it's on, so let it time out.
+While it listens the chip can't sleep: the I2S that reads the mics keeps it
+awake at 80 MHz or more. Measured on one board, listening with the screen
+off nearly all the time: 5 h 57 min from full to the power-off at 3 %. The
+screen adds a lot while it's on, so let it time out.
+
+**Standby when quiet** (Settings, off until you turn it on): off USB, after
+10 minutes with nothing heard over the room's steady hum and the board not
+moved (the QMI8658 motion sensor), the chip sleeps, waking after 1 s, then
+2 s, then every 4 s, to listen for a quarter of a second. Sound, moving the
+board, USB or a button has it listening again at once; the dim ring says
+Standby meanwhile. What it held before stays, but the start of what wakes
+it, up to about 4 s, isn't kept. The battery log marks the minutes in
+standby, so `pull.py --battery` shows what it saves.
 
 The percent doesn't fall evenly: in that run the top half lasted 4.5 hours
 and the bottom half under 1.5. The hours left on the screen allow for that,
