@@ -223,6 +223,20 @@ class PullTest(unittest.TestCase):
         self.assertRegex(r.stdout, r"clip +4 +4\.0 s +2 parts")
         self.assertRegex(self.dev.stderr.readline(), r"^time \d+ -?\d+$")
 
+    def test_battery_log(self):
+        csv = os.path.join(self.dir, "battery.csv")
+        r = self.pull("--battery", "--battery-csv", csv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("On battery 2 h 00 min, it powered itself off.", r.stdout)
+        self.assertIn("100% (4150 mV) to 90% (3910 mV)", r.stdout)
+        self.assertIn("screen on in 13 of 121 minutes (10%)", r.stdout)
+        self.assertIn("drain 5.0% an hour: a full battery lasts about 20 h", r.stdout)
+        lines = read(csv).decode().splitlines()
+        self.assertEqual(lines[0], "minute,mV,percent,screen,recording,usb,off,boot")
+        self.assertEqual(len(lines), 122)
+        self.assertEqual(lines[-1], "120,3910,90,1,0,0,1,0")
+        self.assertFalse(os.path.exists(self.out))   # nothing downloaded
+
     def test_download_then_delete(self):
         r = self.pull()
         self.assertEqual(r.returncode, 0, r.stderr)

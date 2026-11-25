@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "esp_partition.h"
 #include "rec_store.h"
 
 /*
@@ -64,6 +65,9 @@ void recorder_finish(bool save_idle, uint32_t timeout_ms);
 uint32_t recorder_changes(void);
 
 uint32_t recorder_slots(void);
+/* The clips partition's flash past its last slot, which no recording uses
+ * (the battery log keeps its entries there). False before recorder_start(). */
+bool recorder_spare(const esp_partition_t **part, uint32_t *off, uint32_t *len);
 int recorder_list(rec_clip_t *out, int max);
 int recorder_clip(uint32_t slot, rec_clip_t *out);   /* 0 if the slot has a clip */
 int recorder_read(uint32_t slot, uint32_t off, void *buf, uint32_t len);

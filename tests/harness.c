@@ -574,6 +574,20 @@ static void dev_out(const char *line, size_t n)
     }
 }
 
+/* A battery log of two hours off USB, 100% to 90%, the screen on one
+ * minute in ten, ending in a power-off. */
+static int dev_batt(uint32_t i, uint32_t *minute, uint32_t *mv, uint32_t *pct, uint32_t *flags)
+{
+    if (i > 120) {
+        return -1;
+    }
+    *minute = i;
+    *pct = 100 - i / 12;
+    *mv = 4150 - i * 2;
+    *flags = (i % 10 == 0 ? 4 : 0) | (i == 120 ? 16 : 0);
+    return 0;
+}
+
 static int cmd_device(int argc, char **argv)
 {
     CHECK(argc == 3 || argc == 4);
@@ -615,6 +629,7 @@ static int cmd_device(int argc, char **argv)
         .time = dev_time,
         .recording = dev_recording,
         .snap = dev_snap,
+        .batt = dev_batt,
         .out = dev_out,
     };
     fprintf(stderr, "ready\n");

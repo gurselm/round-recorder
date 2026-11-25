@@ -139,6 +139,19 @@ an estimate for an ESP32-S3 working like this, not yet measured on this
 board. In hours, roughly 12 on a 500 mAh LiPo and a day
 on 1000 mAh. The screen adds a lot while it's on, so let it time out.
 
+To measure your own: charge it, unplug it, and use it or leave it until it
+powers itself off at 3 %. Plug it back in (before turning it on, or it
+carries on logging), then:
+
+```sh
+python3 tools/pull.py --battery                     # how long it lasted, and the drain per hour
+python3 tools/pull.py --battery --battery-csv b.csv # and every entry, for a chart
+```
+
+From each time it comes off USB, the board notes its battery's voltage and
+percent once a minute, and whether the screen was on or a recording going,
+in flash past the last recording slot, so the power-off doesn't lose it.
+
 ## Getting the clips
 
 Plug the board in with a data cable, then:

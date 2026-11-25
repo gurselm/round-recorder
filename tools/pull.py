@@ -7,6 +7,7 @@
     python3 tools/pull.py --name 4 "Grocery list"   # name recording 4 (--list shows the numbers)
     python3 tools/pull.py --protect 4      # never replace recording 4 when the board is full (--unprotect undoes it)
     python3 tools/pull.py --transcribe     # and a .txt transcript beside each WAV
+    python3 tools/pull.py --battery        # how long the battery lasted since it last came off USB
     python3 tools/pull.py --port /dev/ttyACM1
 
 A recording longer than the board holds at once comes in parts; they're
@@ -285,6 +286,55 @@ def read_text(wav):
         return ""
 
 
+BATT_USB, BATT_CHARGING, BATT_SCREEN, BATT_RECORDING, BATT_OFF, BATT_BOOT = 1, 2, 4, 8, 16, 32
+
+
+def battery(board, csv_path=None):
+    """The board's battery log (main/batt_log.h): an entry a minute from when
+    it last came off USB. Prints how it went and, from the drain, how long a
+    full battery lasts; with csv_path, writes the entries there too."""
+    board.send("RR BATT")
+    rows = []
+    while True:
+        reply = board.line(5.0)
+        if reply.startswith("B "):
+            rows.append(tuple(int(v) for v in reply[2:].split()))
+        elif reply.startswith("END"):
+            break
+        elif reply.startswith("ERR"):
+            raise RuntimeError(f"battery log: {reply[4:]}")
+    if csv_path:
+        with open(csv_path, "w") as f:
+            f.write("minute,mV,percent,screen,recording,usb,off,boot\n")
+            for m, mv, pct, fl in rows:
+                f.write(f"{m},{mv},{pct},{int(bool(fl & BATT_SCREEN))},{int(bool(fl & BATT_RECORDING))},"
+                        f"{int(bool(fl & BATT_USB))},{int(bool(fl & BATT_OFF))},{int(bool(fl & BATT_BOOT))}\n")
+        print(f"{len(rows)} entries written to {csv_path}")
+    if not rows:
+        print("No battery log yet: it starts when the board comes off USB.")
+        return
+    # The entries on battery: up to USB coming back, if it did.
+    on_batt = [r for r in rows if not r[3] & BATT_USB]
+    first, last = on_batt[0] if on_batt else rows[0], (on_batt or rows)[-1]
+    minutes = last[0] - first[0]
+    end = ("it powered itself off" if last[3] & BATT_OFF else
+           "back on USB" if rows[-1][3] & BATT_USB else "still on battery")
+    screen = sum(1 for r in on_batt if r[3] & BATT_SCREEN)
+    recording = sum(1 for r in on_batt if r[3] & BATT_RECORDING)
+    boots = sum(1 for r in on_batt if r[3] & BATT_BOOT)
+    print(f"On battery {minutes // 60} h {minutes % 60:02d} min, {end}.")
+    print(f"  {first[2]}% ({first[1]} mV) to {last[2]}% ({last[1]} mV)")
+    n = max(len(on_batt), 1)
+    print(f"  screen on in {screen} of {len(on_batt)} minutes ({100 * screen // n}%), "
+          f"recording in {recording}" + (f", turned on again {boots}x" if boots else ""))
+    fallen = first[2] - last[2]
+    if minutes >= 30 and fallen >= 3:
+        per_hour = fallen / (minutes / 60)
+        print(f"  drain {per_hour:.1f}% an hour: a full battery lasts about {100 / per_hour:.0f} h used like this")
+    else:
+        print("  too short to judge the drain yet (half an hour and 3% at least)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--port", default=os.environ.get("RR_PORT"))
@@ -297,8 +347,11 @@ def main():
                     help="never replace this recording when the board is full")
     ap.add_argument("--unprotect", "--unkeep", dest="unkeep", metavar="CLIP", help="let a save replace it again")
     ap.add_argument("--transcribe", action="store_true", help="write a .txt transcript beside each WAV")
+    ap.add_argument("--battery", action="store_true",
+                    help="only show the battery log: how long the battery lasted since it last came off USB")
+    ap.add_argument("--battery-csv", metavar="FILE", help="with --battery, also write the log's entries to FILE")
     args = ap.parse_args()
-    only_board = args.list or args.name or args.keep or args.unkeep
+    only_board = args.list or args.name or args.keep or args.unkeep or args.battery
     transcribe = transcriber() if args.transcribe and not only_board else None
 
     port = args.port or find_port()
@@ -315,6 +368,9 @@ def main():
         now = time.time()
         offset = -(time.altzone if time.localtime(now).tm_isdst > 0 else time.timezone)
         board.ask(f"RR TIME {int(now)} {offset}", "OK")
+        if args.battery:
+            battery(board, args.battery_csv)
+            return
 
         board.send("RR LIST")
         clips = []

@@ -26,6 +26,8 @@
  *   RR TAP <x> <y> [ms]      RR OK              presses the screen there (ui_tap), for checking flows
  *   RR SNAP [screen]         RR SNAP <w> <h> rgb565, RR DATA ..., RR END <bytes> <crc>
  *                                                the screen (ui.h's ui_snapshot), for tools/snap.py
+ *   RR BATT                  RR B <minute> <mV> <percent> <flags> ...
+ *                            RR END <count>      the battery log (batt_log.h), oldest first
  *
  * Failures answer "RR ERR <why>". No IDF in here: the store and the port come
  * as callbacks, which take any locks they need.
@@ -51,6 +53,8 @@ typedef struct {
      * command frees; NULL, or nonzero back, for none. */
     int (*snap)(const char *screen, uint8_t **rgb565, uint32_t *w, uint32_t *h);
     void (*tap)(int x, int y, int ms);   /* NULL: none */
+    /* The battery log's entry i: 0 if there is one. NULL: no log. */
+    int (*batt)(uint32_t i, uint32_t *minute, uint32_t *mv, uint32_t *pct, uint32_t *flags);
     void (*out)(const char *line, size_t n);
 } rec_proto_t;
 

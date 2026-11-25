@@ -141,6 +141,13 @@ void rec_proto_line(const rec_proto_t *p, const char *line)
         reply(p, "OK");
     } else if (!strcmp(cmd, "LIST")) {
         list(p);
+    } else if (!strcmp(cmd, "BATT")) {
+        uint32_t i = 0, minute, mv, pct, flags;
+        while (p->batt && p->batt(i, &minute, &mv, &pct, &flags) == 0) {
+            reply(p, "B %" PRIu32 " %" PRIu32 " %" PRIu32 " %" PRIu32, minute, mv, pct, flags);
+            i++;
+        }
+        reply(p, "END %" PRIu32, i);
     } else if (!strncmp(cmd, "TAP ", 4) && p->tap) {
         int x, y, ms = 120;
         if (sscanf(cmd + 4, "%d %d %d", &x, &y, &ms) >= 2 && x >= 0 && y >= 0 && ms > 0 && ms < 10000) {

@@ -17,6 +17,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "batt_log.h"
 #include "pmu.h"
 #include "recorder.h"
 #include "settings.h"
@@ -68,6 +69,7 @@ static int poll(button_t *b, int64_t now, int64_t hold_us)
 static void power_off(const char *why)
 {
     ESP_LOGI(TAG, "powering off: %s", why);
+    batt_log_power_off();
     ui_show_off();
     pmu_power_off();
 }
@@ -83,6 +85,7 @@ static void check_battery(void)
     if (pmu_read_power(&p) != ESP_OK) {
         return;
     }
+    batt_log_sample(&p, ui_awake(), recorder_recording() != 0);
     bool on_battery = !p.usb && p.battery_pct >= 0;
     if (!on_battery || p.battery_pct > WARN_PCT) {
         warned = false;
@@ -175,6 +178,7 @@ void app_main(void)
     ESP_ERROR_CHECK(settings_init());
     ESP_ERROR_CHECK(audio_init(settings_mic_gain_db(), settings_volume()));
     ESP_ERROR_CHECK(recorder_start());
+    batt_log_init();   /* without room for it, no log */
     ESP_ERROR_CHECK(usb_link_serve());
     ESP_ERROR_CHECK(ui_start());
     xTaskCreatePinnedToCore(buttons_task, "buttons", 4096, NULL, 4, NULL, 0);

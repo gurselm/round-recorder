@@ -64,6 +64,7 @@ static rec_deleted_t s_undo[REC_MAX_PARTS];   /* the last recording deleted; und
 static int s_undo_n;
 static atomic_uint s_last_slot, s_last_seq;   /* seq 0: nothing saved yet */
 static atomic_uint s_changes;
+static const esp_partition_t *s_part;   /* the clips partition */
 
 static atomic_uint s_play_req;          /* a recording to play, or 0 */
 static atomic_uint s_play_first;        /* the one playing, or 0 */
@@ -434,6 +435,7 @@ static void play_task(void *arg)
 esp_err_t recorder_start(void)
 {
     const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, CLIPS_SUBTYPE, "clips");
+    s_part = part;
     ESP_RETURN_ON_FALSE(part, ESP_ERR_NOT_FOUND, TAG, "no clips partition");
     /* A flash chip that can't address past 16 MB is used up to there only. */
     uint32_t chip = 0;
@@ -664,6 +666,17 @@ uint32_t recorder_changes(void)
 uint32_t recorder_slots(void)
 {
     return s_store.slots;
+}
+
+bool recorder_spare(const esp_partition_t **part, uint32_t *off, uint32_t *len)
+{
+    if (!s_part || !s_store.slots) {
+        return false;
+    }
+    *part = s_part;
+    *off = s_store.slots * s_store.slot_bytes;
+    *len = s_store.f.size > *off ? s_store.f.size - *off : 0;
+    return true;
 }
 
 int recorder_list(rec_clip_t *out, int max)

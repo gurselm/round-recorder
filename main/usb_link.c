@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 #include "rec_proto.h"
 #include "rec_ring.h"
+#include "batt_log.h"
 #include "recorder.h"
 #include "ui.h"
 
@@ -47,6 +48,7 @@ static void link_task(void *arg)
         .recording = recorder_recording,
         .snap = snap,
         .tap = ui_tap,
+        .batt = batt_log_get,
         .out = out,
     };
     char line[128];
