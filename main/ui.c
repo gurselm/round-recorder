@@ -1970,12 +1970,12 @@ static lv_obj_t *band(int i, const char *icon, const lv_font_t *icon_font, const
     lv_obj_set_style_text_font(s_band_icon[i], icon_font, 0);
     lv_label_set_text(s_band_icon[i], icon);
     s_band_text[i] = lv_label_create(col);
-    lv_obj_set_style_text_font(s_band_text[i], &lv_font_montserrat_18, 0);   /* fits each band's middle */
+    lv_obj_set_style_text_font(s_band_text[i], &lv_font_montserrat_20, 0);   /* "Settings" 8 px clear, placed */
     lv_obj_set_style_text_align(s_band_text[i], LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_band_text[i], text);
     if (sub) {
         s_band_sub[i] = lv_label_create(col);
-        lv_obj_set_style_text_font(s_band_sub[i], &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_font(s_band_sub[i], &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(s_band_sub[i], BAND_SUB, 0);
         lv_label_set_text(s_band_sub[i], "");
     }
@@ -1996,17 +1996,12 @@ static float band_clearance(int i, float x, float y)
     return fminf(fminf(r - BAND_RI, BAND_RO - r), side);
 }
 
-/* Band i's icon and words at the band's middle, all four alike. Each line
- * is checked on its own (a narrow icon over a wide word leaves the box's
- * corner empty), and a warning is logged if one pokes out, or comes closer
- * than BAND_PAD to an edge, so a new wording can't do it quietly. Runs
- * again when the words change. */
-static void place_band_label(int i)
+/* How far band i's lines would be from its edges, moved by (dx, dy): the
+ * nearest corner of any line. Each line is checked on its own (a narrow
+ * icon over a wide word leaves the box's corner empty). */
+static float band_col_margin(int i, int32_t dx, int32_t dy)
 {
     lv_obj_t *col = s_band_col[i];
-    float a = (BAND_DEG[i][0] + BAND_DEG[i][1]) / 2.0f * (float)M_PI / 180.0f, r = (BAND_RI + BAND_RO) / 2.0f;
-    lv_obj_align(col, LV_ALIGN_CENTER, (int32_t)lroundf(r * sinf(a)), (int32_t)lroundf(-r * cosf(a)));
-    lv_obj_update_layout(col);
     float margin = 1e9f;
     for (uint32_t c = 0; c < lv_obj_get_child_count(col); c++) {
         lv_obj_t *line = lv_obj_get_child(col, (int32_t)c);
@@ -2016,11 +2011,44 @@ static void place_band_label(int i)
         lv_area_t box;
         lv_obj_get_coords(line, &box);
         /* Its corners, from the screen's centre. */
-        float x0 = box.x1 - BSP_LCD_H_RES / 2.0f, x1 = box.x2 + 1 - BSP_LCD_H_RES / 2.0f;
-        float y0 = box.y1 - BSP_LCD_V_RES / 2.0f, y1 = box.y2 + 1 - BSP_LCD_V_RES / 2.0f;
+        float x0 = box.x1 + dx - BSP_LCD_H_RES / 2.0f, x1 = box.x2 + 1 + dx - BSP_LCD_H_RES / 2.0f;
+        float y0 = box.y1 + dy - BSP_LCD_V_RES / 2.0f, y1 = box.y2 + 1 + dy - BSP_LCD_V_RES / 2.0f;
         margin = fminf(margin, fminf(fminf(band_clearance(i, x0, y0), band_clearance(i, x1, y0)),
                                      fminf(band_clearance(i, x0, y1), band_clearance(i, x1, y1))));
     }
+    return margin;
+}
+
+/* Band i's icon and words on the line through the band's middle, centred
+ * across it, and in or out along it to where they have the most room: a
+ * word is a flat box in a slanted band, so at the middle radius one corner
+ * nears the rim while the opposite one has room to spare toward SAVE. A
+ * warning is logged if a line pokes out, or comes closer than BAND_PAD to
+ * an edge, so a new wording can't do it quietly. Runs again when the words
+ * change. */
+#define BAND_SLIDE 20   /* px either way from the middle radius */
+static void place_band_label(int i)
+{
+    lv_obj_t *col = s_band_col[i];
+    float a = (BAND_DEG[i][0] + BAND_DEG[i][1]) / 2.0f * (float)M_PI / 180.0f, r = (BAND_RI + BAND_RO) / 2.0f;
+    float sx = sinf(a), sy = -cosf(a);
+    int32_t x = (int32_t)lroundf(r * sx), y = (int32_t)lroundf(r * sy);
+    lv_obj_align(col, LV_ALIGN_CENTER, x, y);
+    lv_obj_update_layout(col);
+    int32_t best_dx = 0, best_dy = 0;
+    float margin = band_col_margin(i, 0, 0);
+    for (int d = 1; d <= BAND_SLIDE; d++) {   /* nearest the middle first: it wins a tie */
+        for (int s = -1; s <= 1; s += 2) {
+            int32_t dx = (int32_t)lroundf((r + s * d) * sx) - x, dy = (int32_t)lroundf((r + s * d) * sy) - y;
+            float m = band_col_margin(i, dx, dy);
+            if (m > margin) {
+                margin = m;
+                best_dx = dx;
+                best_dy = dy;
+            }
+        }
+    }
+    lv_obj_align(col, LV_ALIGN_CENTER, x + best_dx, y + best_dy);
     if (margin < BAND_PAD) {
         ESP_LOGW(TAG, "band %d: \"%s\" is %.0f px from its band's edge", i, lv_label_get_text(s_band_text[i]),
                  margin);
@@ -2051,7 +2079,7 @@ static void build_bands(void)
      * under it: the band is only so wide. */
     lv_obj_add_flag(s_band_icon[BAND_LIST], LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_text_font(s_band_text[BAND_LIST], &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_font(s_band_sub[BAND_LIST], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_band_sub[BAND_LIST], &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_align(s_band_sub[BAND_LIST], LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_pad_row(s_band_col[BAND_LIST], 2, 0);
     lv_obj_add_event_cb(s_band[BAND_LIST], on_open_list, LV_EVENT_CLICKED, NULL);
@@ -2309,8 +2337,11 @@ static void build(void)
     s_save = button(s_main, 196, 196, 0, &lv_font_montserrat_48, &s_save_label, on_save);
     lv_obj_align(s_save_label, LV_ALIGN_CENTER, 0, -12);
     s_save_sub = lv_label_create(s_save);
-    lv_obj_align(s_save_sub, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_set_style_text_font(s_save_sub, &lv_font_montserrat_24, 0);
+    lv_obj_align(s_save_sub, LV_ALIGN_CENTER, 0, 36);   /* "nothing new" 4 px inside SAVE's circle */
     s_batt = label_at(s_main, 156);
+    lv_obj_set_style_text_font(s_batt, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(s_batt, LV_TEXT_ALIGN_CENTER, 0);   /* "charge soon" on a line of its own */
     lv_label_set_text(s_batt, "");
     build_bands();   /* after SAVE, so a touch at SAVE's corners reaches the band there */
 
@@ -2447,6 +2478,22 @@ static void build_aod_and_intro(void)
     lv_obj_set_style_bg_color(ok, GREEN, 0);
 }
 
+/* The status line above SAVE: 24 px when it's one line that fits the gap
+ * between the two top bands under the ring with 3 px to spare (205 px at
+ * 170 above the middle), the longer ones at 20 on two lines. */
+#define HELD_BIG_W 205
+static void set_held(const char *text)
+{
+    if (!strcmp(lv_label_get_text(s_held), text)) {
+        return;
+    }
+    lv_point_t size;
+    lv_text_get_size(&size, text, &lv_font_montserrat_24, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    bool big = !strchr(text, '\n') && size.x <= HELD_BIG_W;
+    lv_obj_set_style_text_font(s_held, big ? &lv_font_montserrat_24 : &lv_font_montserrat_20, 0);
+    lv_label_set_text(s_held, text);
+}
+
 static void refresh(lv_timer_t *t)
 {
     static uint32_t ticks;
@@ -2487,26 +2534,27 @@ static void refresh(lv_timer_t *t)
                                        : level > 700 ? lv_color_hex(0x80CBC4) : lv_color_hex(0x546E7A),
                                LV_PART_INDICATOR);
     char held[16];
+    const char *status;   /* the line above SAVE */
     bool offer = st == REC_SAVE_DONE && atomic_load(&s_quiet) && recorder_saved_ms() < CONTINUE_MS &&
                  recorder_can_continue();
     lv_obj_set_style_text_color(s_held, recording ? RED : paused ? AMBER : offer ? lv_color_white() : DIM, 0);
     if (recording) {
-        lv_label_set_text(s_held, "Recording");
+        status = "Recording";
         format_len(recorder_recording_seconds(), held, sizeof(held));
         lv_label_set_text(s_save_sub, held);
     } else if (saving) {
-        lv_label_set_text(s_held, "Saving...");
+        status = "Saving...";
         lv_label_set_text(s_save_sub, "");
     } else if (paused) {
-        lv_label_set_text(s_held, "Paused: not listening");
+        status = "Paused: not listening";
         lv_label_set_text(s_save_sub, "paused");
     } else {
         bool hint = now < s_hold_hint_us;   /* a tap on Pause */
         bool nothing = now < atomic_load(&s_nothing_until);   /* a save with nothing new */
-        lv_label_set_text(s_held, nothing ? "Nothing new since\nthe last save"
-                                  : hint  ? "Hold to pause"
-                                  : offer ? "Saved. Press PWR again\nto keep recording"
-                                          : "Listening");
+        status = nothing ? "Nothing new since\nthe last save"
+                 : hint  ? "Hold to pause"
+                 : offer ? "Saved. Press PWR again\nto keep recording"
+                         : "Listening";
         if (hint || nothing) {
             lv_obj_set_style_text_color(s_held, lv_color_white(), 0);
         }
@@ -2556,9 +2604,7 @@ static void refresh(lv_timer_t *t)
     } else {
         lv_label_set_text(s_save_label, "SAVE");
     }
-    if (full) {
-        lv_label_set_text(s_held, "Full: unprotect or\ndelete one");
-    }
+    set_held(full ? "Full: unprotect or\ndelete one" : status);
     /* SAVE's colour, and the arc beside PWR, which does what SAVE does. */
     bool amber = paused && !recording && !saving && !bad;
     lv_color_t accent = bad || recording ? RED : amber ? AMBER : lv_theme_get_color_primary(s_save);
@@ -2607,7 +2653,7 @@ static void refresh(lv_timer_t *t)
                 }
             }
             if (atomic_load(&s_battery_low) && !p.usb && !p.charging) {
-                snprintf(left, sizeof(left), "  charge soon");   /* what used to say it, below SAVE, is a band now */
+                snprintf(left, sizeof(left), "\ncharge soon");   /* under it: one line is too wide for the gap */
             }
             /* A battery filled to its level, then the bolt while charging
              * or the plug on USB when it's full. */
