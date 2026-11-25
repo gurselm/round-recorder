@@ -2299,8 +2299,11 @@ static void build(void)
     s_save = button(s_main, 196, 196, 0, &lv_font_montserrat_48, &s_save_label, on_save);
     lv_obj_align(s_save_label, LV_ALIGN_CENTER, 0, -12);
     s_save_sub = lv_label_create(s_save);
-    lv_obj_align(s_save_sub, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_set_style_text_font(s_save_sub, &lv_font_montserrat_24, 0);
+    lv_obj_align(s_save_sub, LV_ALIGN_CENTER, 0, 36);   /* "nothing new" 4 px inside SAVE's circle */
     s_batt = label_at(s_main, 156);
+    lv_obj_set_style_text_font(s_batt, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(s_batt, LV_TEXT_ALIGN_CENTER, 0);   /* "charge soon" on a line of its own */
     lv_label_set_text(s_batt, "");
     build_bands();   /* after SAVE, so a touch at SAVE's corners reaches the band there */
 
@@ -2433,6 +2436,22 @@ static void build_aod_and_intro(void)
     lv_obj_set_style_bg_color(ok, GREEN, 0);
 }
 
+/* The status line above SAVE: 24 px when it's one line that fits the gap
+ * between the two top bands under the ring with 3 px to spare (205 px at
+ * 170 above the middle), the longer ones at 20 on two lines. */
+#define HELD_BIG_W 205
+static void set_held(const char *text)
+{
+    if (!strcmp(lv_label_get_text(s_held), text)) {
+        return;
+    }
+    lv_point_t size;
+    lv_text_get_size(&size, text, &lv_font_montserrat_24, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    bool big = !strchr(text, '\n') && size.x <= HELD_BIG_W;
+    lv_obj_set_style_text_font(s_held, big ? &lv_font_montserrat_24 : &lv_font_montserrat_20, 0);
+    lv_label_set_text(s_held, text);
+}
+
 static void refresh(lv_timer_t *t)
 {
     static uint32_t ticks;
@@ -2473,26 +2492,27 @@ static void refresh(lv_timer_t *t)
                                        : level > 700 ? lv_color_hex(0x80CBC4) : lv_color_hex(0x546E7A),
                                LV_PART_INDICATOR);
     char held[16];
+    const char *status;   /* the line above SAVE */
     bool offer = st == REC_SAVE_DONE && atomic_load(&s_quiet) && recorder_saved_ms() < CONTINUE_MS &&
                  recorder_can_continue();
     lv_obj_set_style_text_color(s_held, recording ? RED : paused ? AMBER : offer ? lv_color_white() : DIM, 0);
     if (recording) {
-        lv_label_set_text(s_held, "Recording");
+        status = "Recording";
         format_len(recorder_recording_seconds(), held, sizeof(held));
         lv_label_set_text(s_save_sub, held);
     } else if (saving) {
-        lv_label_set_text(s_held, "Saving...");
+        status = "Saving...";
         lv_label_set_text(s_save_sub, "");
     } else if (paused) {
-        lv_label_set_text(s_held, "Paused: not listening");
+        status = "Paused: not listening";
         lv_label_set_text(s_save_sub, "paused");
     } else {
         bool hint = now < s_hold_hint_us;   /* a tap on Pause */
         bool nothing = now < atomic_load(&s_nothing_until);   /* a save with nothing new */
-        lv_label_set_text(s_held, nothing ? "Nothing new since\nthe last save"
-                                  : hint  ? "Hold to pause"
-                                  : offer ? "Saved. Press PWR again\nto keep recording"
-                                          : "Listening");
+        status = nothing ? "Nothing new since\nthe last save"
+                 : hint  ? "Hold to pause"
+                 : offer ? "Saved. Press PWR again\nto keep recording"
+                         : "Listening";
         if (hint || nothing) {
             lv_obj_set_style_text_color(s_held, lv_color_white(), 0);
         }
@@ -2542,9 +2562,7 @@ static void refresh(lv_timer_t *t)
     } else {
         lv_label_set_text(s_save_label, "SAVE");
     }
-    if (full) {
-        lv_label_set_text(s_held, "Full: unprotect or\ndelete one");
-    }
+    set_held(full ? "Full: unprotect or\ndelete one" : status);
     /* SAVE's colour, and the arc beside PWR, which does what SAVE does. */
     bool amber = paused && !recording && !saving && !bad;
     lv_color_t accent = bad || recording ? RED : amber ? AMBER : lv_theme_get_color_primary(s_save);
@@ -2593,7 +2611,7 @@ static void refresh(lv_timer_t *t)
                 }
             }
             if (atomic_load(&s_battery_low) && !p.usb && !p.charging) {
-                snprintf(left, sizeof(left), "  charge soon");   /* what used to say it, below SAVE, is a band now */
+                snprintf(left, sizeof(left), "\ncharge soon");   /* under it: one line is too wide for the gap */
             }
             /* A battery filled to its level, then the bolt while charging
              * or the plug on USB when it's full. */
