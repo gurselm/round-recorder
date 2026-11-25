@@ -1793,13 +1793,16 @@ enum { BAND_PAUSE, BAND_HELP, BAND_SET, BAND_LIST, BANDS };
 
 #define BAND_RI 108   /* inner radius: 10 px clear of SAVE's 98 */
 #define BAND_RO 208   /* outer: inside the arc beside PWR (from 211) and the ring */
-#define BAND_GAP 2    /* degrees each side of a band left empty */
+#define BAND_SEAM 4   /* px: the even black line between the two bands on each side */
 #define BAND_PAD 3    /* a band's words keep at least this far from its edges */
 
-/* Compass degrees, 0 at the top, clockwise. */
+/* Compass degrees, 0 at the top, clockwise. The two on each side meet at 9
+ * and 3 o'clock, split by a seam of even width; the gaps at the top and
+ * bottom hold the status and the battery. */
 static const int16_t BAND_DEG[BANDS][2] = {
-    [BAND_PAUSE] = { 272, 328 }, [BAND_HELP] = { 32, 88 }, [BAND_SET] = { 92, 148 }, [BAND_LIST] = { 212, 268 },
+    [BAND_PAUSE] = { 270, 326 }, [BAND_HELP] = { 34, 90 }, [BAND_SET] = { 90, 146 }, [BAND_LIST] = { 214, 270 },
 };
+#define BAND_SEAM_DEG(i) ((i) == BAND_PAUSE || (i) == BAND_LIST ? 270 : 90)
 
 static lv_obj_t *s_band[BANDS], *s_band_icon[BANDS], *s_band_text[BANDS], *s_band_sub[BANDS];
 static lv_obj_t *s_band_col[BANDS];   /* the icon and words, placed by place_band_label() */
@@ -1834,7 +1837,7 @@ static void band_draw(lv_event_t *e)
     d.width = BAND_RO - BAND_RI;
     d.rounded = 0;
     /* LVGL's angles start at 3 o'clock. */
-    int32_t start = (BAND_DEG[i][0] + BAND_GAP + 270) % 360, end = (BAND_DEG[i][1] - BAND_GAP + 270) % 360;
+    int32_t start = (BAND_DEG[i][0] + 270) % 360, end = (BAND_DEG[i][1] + 270) % 360;
     d.start_angle = start;
     d.end_angle = end;
     lv_draw_arc(lv_event_get_layer(e), &d);
@@ -1843,6 +1846,20 @@ static void band_draw(lv_event_t *e)
         d.end_angle = start + (end - start) * s_hold / 1000;
         lv_draw_arc(lv_event_get_layer(e), &d);
     }
+    /* The seam to its neighbour on this side: a straight black line, the
+     * same width all along (an angular gap widens toward the rim). Both
+     * bands draw it, so it's whole whichever is drawn last. */
+    float sa = BAND_SEAM_DEG(i) * (float)M_PI / 180.0f, sx = sinf(sa), sy = -cosf(sa);
+    lv_draw_line_dsc_t l;
+    lv_draw_line_dsc_init(&l);
+    l.color = lv_color_black();
+    l.width = BAND_SEAM;
+    l.opa = LV_OPA_COVER;
+    l.p1.x = d.center.x + sx * (BAND_RI - 2);
+    l.p1.y = d.center.y + sy * (BAND_RI - 2);
+    l.p2.x = d.center.x + sx * (BAND_RO + 2);
+    l.p2.y = d.center.y + sy * (BAND_RO + 2);
+    lv_draw_line(lv_event_get_layer(e), &l);
 }
 
 /* Only inside the band, out to the rim, and to the middle of the gap either
@@ -1860,8 +1877,8 @@ static void band_hit(lv_event_t *e)
     if (deg < 0) {
         deg += 360.0f;
     }
-    info->res = i >= 0 && r >= BAND_RI - 6 && r <= BSP_LCD_H_RES / 2 && deg >= BAND_DEG[i][0] - 2 &&
-                deg <= BAND_DEG[i][1] + 2;
+    info->res = i >= 0 && r >= BAND_RI - 6 && r <= BSP_LCD_H_RES / 2 && deg >= BAND_DEG[i][0] &&
+                deg <= BAND_DEG[i][1];   /* at 9 and 3 o'clock, the seam is where one ends and the next begins */
 }
 
 static void hold_step(void *var, int32_t v)
@@ -1963,8 +1980,8 @@ static float band_clearance(int i, float x, float y)
     if (deg < 0) {
         deg += 360.0f;
     }
-    float lo = BAND_DEG[i][0] + BAND_GAP, hi = BAND_DEG[i][1] - BAND_GAP;
-    float side = fminf(deg - lo, hi - deg) * (float)M_PI / 180.0f * r;   /* along the arc, near enough */
+    float lo = BAND_DEG[i][0], hi = BAND_DEG[i][1];
+    float side = fminf(deg - lo, hi - deg) * (float)M_PI / 180.0f * r - BAND_SEAM / 2.0f;   /* along the arc, near enough */
     return fminf(fminf(r - BAND_RI, BAND_RO - r), side);
 }
 
