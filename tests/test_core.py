@@ -2,7 +2,7 @@
 
     python3 -m unittest discover -s tests
 
-Compiles main/rec_*.c, main/adpcm.c, main/tempo.c and main/multitap.c with tests/harness.c (set CC to
+Compiles main/rec_*.c, main/adpcm.c, main/tempo.c, main/multitap.c and main/batt_est.c with tests/harness.c (set CC to
 change compilers). pull.py talks to the harness's fake board over a pty.
 """
 import array
@@ -32,7 +32,7 @@ def setUpModule():
     HARNESS = os.path.join(TMP, "harness")
     main = os.path.join(ROOT, "main")
     srcs = [os.path.join(ROOT, "tests", "harness.c")] + [
-        os.path.join(main, f) for f in ("rec_ring.c", "rec_store.c", "rec_proto.c", "adpcm.c", "tempo.c", "multitap.c")]
+        os.path.join(main, f) for f in ("rec_ring.c", "rec_store.c", "rec_proto.c", "adpcm.c", "tempo.c", "multitap.c", "batt_est.c")]
     subprocess.run([os.environ.get("CC", "cc"), "-std=c11", "-D_DEFAULT_SOURCE", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", "-g", "-I", main, *srcs, "-lm", "-o", HARNESS], check=True)
 
@@ -57,6 +57,32 @@ def write(path, data):
 def read(path):
     with open(path, "rb") as f:
         return f.read()
+
+
+class BatteryEstimateTest(unittest.TestCase):
+    def hours(self, start, pct, since):
+        return float(harness("hours", start, pct, since))
+
+    def test_matches_the_measured_discharge(self):
+        # Points from the discharge the table came from: 5 h 57 min to the
+        # power-off, with the percent falling slowly at the top. Within 0.5 h:
+        # the table has a point every 5 %, and the percent falls in uneven steps.
+        self.assertAlmostEqual(self.hours(100, 82, 2.0), 3.97, delta=0.5)
+        self.assertAlmostEqual(self.hours(100, 51, 4.5), 1.47, delta=0.1)
+        self.assertAlmostEqual(self.hours(100, 29, 5.0), 0.98, delta=0.1)
+
+    def test_a_heavier_load_shortens_it(self):
+        # The same fall in half the time: half the hours left.
+        self.assertAlmostEqual(self.hours(100, 82, 1.0), self.hours(100, 82, 2.0) / 2, places=2)
+
+    def test_from_part_charged(self):
+        # Unplugged at 60 %, at the measured pace: what that discharge had left.
+        self.assertAlmostEqual(self.hours(60, 51, (268.2 - 233) / 60), (357 - 268.2) / 60, delta=0.05)
+
+    def test_nothing_to_go_on(self):
+        self.assertLess(self.hours(80, 80, 1.0), 0)
+        self.assertLess(self.hours(80, 85, 1.0), 0)
+        self.assertEqual(self.hours(100, 3, 6.0), 0)
 
 
 class RingTest(unittest.TestCase):

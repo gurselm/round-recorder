@@ -8,6 +8,7 @@
  *   harness tempo PCT IN.raw OUT.raw           IN at PCT % speed, as playback does it
  *   harness multitap KEY@MS|mode=N ...         the text those keypad presses type
  *   harness crc FILE
+ *   harness hours START PCT HOURS              the hours left shown after HOURS from START % to PCT %
  *   harness store                              store checks; prints "store ok"
  *   harness device DIR [REC]                   a fake board on stdin/stdout with five clips (the
  *                                              last two one recording), each one's blocks also
@@ -21,6 +22,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "batt_est.h"
 #include "rec_proto.h"
 #include "multitap.h"
 #include "rec_ring.h"
@@ -267,6 +269,13 @@ static int cmd_multitap(int argc, char **argv)
         }
     }
     printf("[%s]\n", text);
+    return 0;
+}
+
+static int cmd_hours(int argc, char **argv)
+{
+    CHECK(argc == 5);
+    printf("%.2f\n", batt_hours_left(atoi(argv[2]), atoi(argv[3]), atof(argv[4])));
     return 0;
 }
 
@@ -663,6 +672,7 @@ int main(int argc, char **argv)
     if (!strcmp(argv[1], "ring")) return cmd_ring(argc, argv);
     if (!strcmp(argv[1], "decode")) return cmd_decode(argc, argv);
     if (!strcmp(argv[1], "crc")) return cmd_crc(argc, argv);
+    if (!strcmp(argv[1], "hours")) return cmd_hours(argc, argv);
     if (!strcmp(argv[1], "adpcm")) return cmd_adpcm();
     if (!strcmp(argv[1], "tempo")) return cmd_tempo(argc, argv);
     if (!strcmp(argv[1], "multitap")) return cmd_multitap(argc, argv);

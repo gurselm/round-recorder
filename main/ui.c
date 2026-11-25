@@ -22,6 +22,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "batt_est.h"
 #include "pmu.h"
 #include "rec_ring.h"
 #include "recorder.h"
@@ -2571,7 +2572,8 @@ static void refresh(lv_timer_t *t)
 
     if (ticks++ % 20 == 0) {   /* every 5 s */
         /* Hours left from how fast it has fallen since USB came out, once
-         * it has fallen 3 %: no guess about the battery or the load. */
+         * it has fallen 3 %, read against a measured discharge since the
+         * percent doesn't fall evenly: no guess about the load. */
         static int64_t since_us;
         static int since_pct = -1;
         pmu_power_t p;
@@ -2585,8 +2587,10 @@ static void refresh(lv_timer_t *t)
             char left[16] = "";
             int fallen = since_pct - p.battery_pct;
             if (since_pct >= 0 && fallen >= 3) {
-                double hours = (double)(now - since_us) / 3.6e9 / fallen * p.battery_pct;
-                snprintf(left, sizeof(left), "   ~%d h", (int)(hours + 0.5));
+                double hours = batt_hours_left(since_pct, p.battery_pct, (double)(now - since_us) / 3.6e9);
+                if (hours >= 0) {
+                    snprintf(left, sizeof(left), "   ~%d h", (int)(hours + 0.5));
+                }
             }
             if (atomic_load(&s_battery_low) && !p.usb && !p.charging) {
                 snprintf(left, sizeof(left), "  charge soon");   /* what used to say it, below SAVE, is a band now */

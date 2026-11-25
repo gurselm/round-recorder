@@ -134,10 +134,13 @@ and time. Clips saved before it are named by their number.
 ## Battery life
 
 Recording never stops, so the chip can't sleep: the I2S that reads the mics
-keeps it awake at 80 MHz or more. With the screen off, expect about 30–45 mA,
-an estimate for an ESP32-S3 working like this, not yet measured on this
-board. In hours, roughly 12 on a 500 mAh LiPo and a day
-on 1000 mAh. The screen adds a lot while it's on, so let it time out.
+keeps it awake at 80 MHz or more. Measured on one board, recording with the
+screen off nearly all the time: 5 h 57 min from full to the power-off at
+3 %. The screen adds a lot while it's on, so let it time out.
+
+The percent doesn't fall evenly: in that run the top half lasted 4.5 hours
+and the bottom half under 1.5. The hours left on the screen allow for that,
+from that run's curve, scaled to how fast your board is going.
 
 To measure your own: charge it, unplug it, and use it or leave it until it
 powers itself off at 3 %. Plug it back in (before turning it on, or it
