@@ -2574,8 +2574,16 @@ static void refresh(lv_timer_t *t)
             if (atomic_load(&s_battery_low) && !p.usb && !p.charging) {
                 snprintf(left, sizeof(left), "  charge soon");   /* what used to say it, below SAVE, is a band now */
             }
-            lv_label_set_text_fmt(s_batt, "%s%d%%%s", p.charging ? LV_SYMBOL_CHARGE " " : p.usb ? LV_SYMBOL_USB " " : "",
-                                  p.battery_pct, left);
+            /* A battery filled to its level, then the bolt while charging
+             * or the plug on USB when it's full. */
+            const char *cell = p.battery_pct >= 80   ? LV_SYMBOL_BATTERY_FULL
+                               : p.battery_pct >= 55 ? LV_SYMBOL_BATTERY_3
+                               : p.battery_pct >= 30 ? LV_SYMBOL_BATTERY_2
+                               : p.battery_pct >= 10 ? LV_SYMBOL_BATTERY_1
+                                                     : LV_SYMBOL_BATTERY_EMPTY;
+            lv_label_set_text_fmt(s_batt, "%s %s%d%%%s", cell,
+                                  p.charging ? LV_SYMBOL_CHARGE " " : p.usb ? LV_SYMBOL_USB " " : "", p.battery_pct,
+                                  left);
             lv_obj_set_style_text_color(s_batt, atomic_load(&s_battery_low) ? RED : lv_color_white(), 0);
         } else {
             lv_label_set_text(s_batt, LV_SYMBOL_USB);
