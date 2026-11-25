@@ -39,6 +39,16 @@ static const char *TAG = "ui";
 #define GREEN lv_color_hex(0x2E7D32)
 #define AMBER lv_color_hex(0xEF6C00)
 #define DIM lv_color_hex(0x9E9E9E)
+/* The main screen's bands: a lighter grey than before, with white words,
+ * to stand out from the black (3:1 against it; the old dark grey was
+ * 1.4:1). Pressed, darker. Amber and red lightened to read on them (4 and
+ * 3:1); the paused Pause band is amber with dark words, as SAVE is. */
+#define BAND_FILL lv_color_hex(0x5A5A5A)
+#define BAND_PRESSED lv_color_hex(0x3A3A3A)
+#define BAND_INK lv_color_white()
+#define BAND_SUB lv_color_hex(0xD0D0D0)
+#define BAND_AMBER lv_color_hex(0xFFB74D)
+#define BAND_RED lv_color_hex(0xFF8A80)
 #define CONTINUE_MS 10000      /* after a PWR save, PWR again keeps recording for this long (main.c) */
 
 static esp_lcd_panel_io_handle_t s_io;
@@ -1913,8 +1923,9 @@ static lv_obj_t *band(int i, const char *icon, const lv_font_t *icon_font, const
     lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_ADV_HITTEST);
     lv_obj_set_style_arc_width(b, BAND_RO - BAND_RI, 0);
     lv_obj_set_style_arc_opa(b, LV_OPA_COVER, 0);
-    lv_obj_set_style_arc_color(b, lv_color_hex(0x262626), 0);
-    lv_obj_set_style_arc_color(b, lv_color_hex(0x4A4A4A), LV_STATE_PRESSED);
+    lv_obj_set_style_arc_color(b, BAND_FILL, 0);
+    lv_obj_set_style_arc_color(b, BAND_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_text_color(b, BAND_INK, 0);
     lv_obj_add_event_cb(b, band_draw, LV_EVENT_DRAW_MAIN, NULL);
     lv_obj_add_event_cb(b, band_hit, LV_EVENT_HIT_TEST, NULL);
     s_band[i] = b;
@@ -1937,7 +1948,7 @@ static lv_obj_t *band(int i, const char *icon, const lv_font_t *icon_font, const
     if (sub) {
         s_band_sub[i] = lv_label_create(col);
         lv_obj_set_style_text_font(s_band_sub[i], &lv_font_montserrat_18, 0);
-        lv_obj_set_style_text_color(s_band_sub[i], DIM, 0);
+        lv_obj_set_style_text_color(s_band_sub[i], BAND_SUB, 0);
         lv_label_set_text(s_band_sub[i], "");
     }
     return b;
@@ -2318,7 +2329,7 @@ static void show_room(int n)
     }
     set_band_text(BAND_LIST, s_band_text[BAND_LIST], count);
     set_band_text(BAND_LIST, sub, room);
-    lv_obj_set_style_text_color(sub, free > 1 ? DIM : free == 1 || replaceable ? AMBER : RED, 0);
+    lv_obj_set_style_text_color(sub, free > 1 ? BAND_SUB : free == 1 || replaceable ? BAND_AMBER : BAND_RED, 0);
 }
 
 /* The dim ring's tick: once a second, its state; every minute it moves a
@@ -2430,7 +2441,7 @@ static void refresh(lv_timer_t *t)
         lv_label_set_text(s_band_icon[BAND_PAUSE], paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
         lv_obj_set_flag(s_band_sub[BAND_PAUSE], LV_OBJ_FLAG_HIDDEN, paused);
         set_band_text(BAND_PAUSE, s_band_text[BAND_PAUSE], paused ? "Resume" : "Pause");
-        lv_obj_set_style_text_color(pb, paused ? lv_color_hex(0x1A1A1A) : lv_color_white(), 0);
+        lv_obj_set_style_text_color(pb, paused ? lv_color_hex(0x1A1A1A) : BAND_INK, 0);   /* dark on amber */
     }
     /* The ring: the mic's level while listening, a sweep while saving, red
      * and filling while recording, empty while paused. */
