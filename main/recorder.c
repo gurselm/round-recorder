@@ -32,6 +32,8 @@ static const char *TAG = "recorder";
 #define FLOOR_RISE_DB 0.002f    /* a 20 ms read */
 #define HEARD_DB 15.0f
 #define HEARD_MIN_DBFS -60.0f
+#define SOUND_WINDOW 50         /* reads: a second */
+#define SOUND_READS 10          /* heard in a second: speech or the like, not a click or a knock */
 #define PART_MARGIN (5 * REC_BLOCKS_PER_S)   /* a part goes to flash this long before the ring would lose it */
 #define MAX_REC_BLOCKS (CONFIG_REC_KEEP_MAX_S * REC_BLOCKS_PER_S)
 
@@ -123,6 +125,7 @@ static void audio_task(void *arg)
     int64_t last = 0;
     float floor = 0;   /* dBFS; starts high and drops to the room's at once */
     int settle = SETTLE_READS;
+    int window = 0, loud = 0;   /* reads judged this second, and heard of them */
     for (;;) {
         if (audio_read(pcm, AUDIO_CHUNK) != ESP_OK) {
             vTaskDelay(pdMS_TO_TICKS(20));
@@ -135,6 +138,7 @@ static void audio_task(void *arg)
                 ESP_LOGW(TAG, "mic read %lld ms after the last", (now - last) / 1000);
             }
             settle = SETTLE_READS;   /* after a sleep: old DMA buffers, and the codec's clock just back */
+            window = loud = 0;
         }
         last = now;
         float db = audio_dbfs(pcm, AUDIO_CHUNK);
@@ -149,8 +153,16 @@ static void audio_task(void *arg)
              * HEARD_DB over it, and over a floor for a silent room. */
             floor = db < floor ? db : floor + FLOOR_RISE_DB;
             if (db > floor + HEARD_DB && db > HEARD_MIN_DBFS) {
-                atomic_store(&s_heard_at, now);
                 atomic_fetch_add(&s_heard, 1);
+                loud++;
+            }
+            /* Quiet ends with a second that has some sound through it; a
+             * door, a knock or a cough alone doesn't end it. */
+            if (++window == SOUND_WINDOW) {
+                if (loud >= SOUND_READS) {
+                    atomic_store(&s_heard_at, now);
+                }
+                window = loud = 0;
             }
         }
         if (!atomic_load(&s_paused) && !standby) {

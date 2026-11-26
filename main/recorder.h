@@ -35,10 +35,11 @@ bool recorder_paused(void);
  * goes into the ring; what it held before stays. */
 void recorder_set_standby(bool on);
 bool recorder_standby(void);
-/* Since the mics last heard more than the room's steady hum (10 dB over
- * it), ms; from boot if never. */
+/* Since the mics last heard a second with sound through it (a fifth of it
+ * 15 dB over the room's steady hum), ms; from boot if never. A click or a
+ * knock alone doesn't count. */
 uint32_t recorder_quiet_ms(void);
-/* 20 ms reads that heard that, counted: a check compares two. */
+/* 20 ms reads over that hum, counted: a check compares two. */
 uint32_t recorder_heard(void);
 
 /* The mics' loudness over the last 20 ms, 0 to 1. */

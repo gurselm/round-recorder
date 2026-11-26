@@ -249,6 +249,26 @@ void ui_sleep_if_idle(uint32_t idle_ms)
     power_unlock();
 }
 
+static void touch_sleep(void)
+{
+    if (s_touch_asleep) {
+        return;
+    }
+    esp_err_t err = esp_lcd_panel_io_tx_param(s_tp->io, 0xD1, (uint8_t[]){ 0x05 }, 1);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    /* Asleep, it doesn't answer at all: a touch controller still awake
+     * would both take taps and use power. */
+    bool answers = i2c_master_probe(bsp_i2c_get_handle(), 0x5A, 50) == ESP_OK;
+    ESP_LOGI(TAG, "touch to deep sleep: %s, %s", esp_err_to_name(err), answers ? "still answers" : "quiet");
+    s_touch_asleep = true;
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        lv_indev_enable(s_touch, false);   /* reading it asleep only fails */
+        esp_lv_adapter_unlock();
+    }
+}
+
+static void touch_wake(void);
+
 static void sleep_locked(void)
 {
     if (!atomic_exchange(&s_awake, false)) {
@@ -260,17 +280,7 @@ static void sleep_locked(void)
      * its reset wakes it. */
     bool aod = settings_aod(), tap = aod && settings_tap_wake();
     if (!tap) {
-        esp_err_t err = esp_lcd_panel_io_tx_param(s_tp->io, 0xD1, (uint8_t[]){ 0x05 }, 1);
-        vTaskDelay(pdMS_TO_TICKS(20));
-        /* Asleep, it doesn't answer at all: a touch controller still awake
-         * would both take taps and use power. */
-        bool answers = i2c_master_probe(bsp_i2c_get_handle(), 0x5A, 50) == ESP_OK;
-        ESP_LOGI(TAG, "touch to deep sleep: %s, %s", esp_err_to_name(err), answers ? "still answers" : "quiet");
-        s_touch_asleep = true;
-        if (esp_lv_adapter_lock(-1) == ESP_OK) {
-            lv_indev_enable(s_touch, false);   /* reading it asleep only fails */
-            esp_lv_adapter_unlock();
-        }
+        touch_sleep();
     }
     if (aod) {
         if (esp_lv_adapter_lock(-1) == ESP_OK) {
@@ -302,8 +312,48 @@ static void touch_wake(void)
     }
 }
 
+/* Standby's dark: the dim ring off too, the panel in SLPIN and touch
+ * asleep, LVGL stopped. Back to the ring as it was after. */
+static bool s_dark;
+
+static void undark_locked(void)
+{
+    if (!s_dark) {
+        return;
+    }
+    panel_cmd(0x11, NULL, 0);
+    vTaskDelay(pdMS_TO_TICKS(120));
+    set_brightness(4);
+    if (settings_tap_wake()) {
+        touch_wake();
+    }
+    esp_lv_adapter_resume();
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        lv_obj_invalidate(lv_screen_active());
+        esp_lv_adapter_unlock();
+    }
+    s_dark = false;
+}
+
+void ui_dark(bool on)
+{
+    power_lock();
+    if (on && !s_dark && atomic_load(&s_aod_on)) {
+        touch_sleep();
+        esp_lv_adapter_pause(-1);
+        panel_cmd(0x10, NULL, 0);
+        vTaskDelay(pdMS_TO_TICKS(120));
+        s_dark = true;
+        ESP_LOGI(TAG, "dim ring off for standby");
+    } else if (!on) {
+        undark_locked();
+    }
+    power_unlock();
+}
+
 static void wake_locked(void)
 {
+    undark_locked();   /* a wake from standby's dark, as the "Off" before a low battery's power-off */
     ESP_LOGI(TAG, "wake (awake %d, ring %d)", atomic_load(&s_awake), atomic_load(&s_aod_on));
     if (atomic_exchange(&s_awake, true)) {
         if (esp_lv_adapter_lock(100) == ESP_OK) {
@@ -2416,7 +2466,6 @@ static bool aod_tick(uint32_t *ticks)
     lv_label_set_text_fmt(s_aod_text, "%s%s",
                           recording                ? "REC "
                           : recorder_paused()      ? "Paused"
-                          : recorder_standby()     ? "Standby"
                                                    : "",
                           recording ? len : "");
     lv_obj_set_y(s_aod_text, (int32_t)(minute % 5) * 3);

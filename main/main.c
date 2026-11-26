@@ -45,7 +45,7 @@ static const char *TAG = "main";
 #define CHECK_FIRST_MS 1000    /* standby: asleep this long before the first check for sound, */
 #define CHECK_MAX_MS 4000      /* doubling up to this */
 #define LISTEN_MS 250          /* each check awake: 100 ms to settle, the rest heard */
-#define HEARD_READS 2          /* 20 ms reads over the room's hum in a check: sound */
+#define HEARD_READS 3          /* 20 ms reads over the room's hum in a check (of about 7): sound */
 
 typedef struct {
     gpio_num_t pin;
@@ -137,10 +137,12 @@ static bool standby_due(int64_t now)
 
 /* Sleeps, waking to listen for a moment: after 1 s, then 2, then 4 s
  * apart. Sound, a move, USB or a button has it listening again; a button
- * press is then handled as usual. The ring keeps what it held. */
+ * press is then handled as usual. The mics' ring keeps what it held; the
+ * screen's dim ring goes dark meanwhile. */
 static void standby(int64_t *battery_at)
 {
     recorder_set_standby(true);
+    ui_dark(true);
     gpio_wakeup_enable(PWR_GPIO, GPIO_INTR_HIGH_LEVEL);
     gpio_wakeup_enable(BOOT_GPIO, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
@@ -179,6 +181,7 @@ static void standby(int64_t *battery_at)
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
     gpio_wakeup_disable(PWR_GPIO);
     gpio_wakeup_disable(BOOT_GPIO);
+    ui_dark(false);
     recorder_set_standby(false);
     ESP_LOGI(TAG, "standby ended by %s after %" PRIu32 " checks", why, checks);
 }

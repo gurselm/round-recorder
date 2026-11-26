@@ -140,13 +140,15 @@ off nearly all the time: 5 h 57 min from full to the power-off at 3 %. The
 screen adds a lot while it's on, so let it time out.
 
 **Standby when quiet** (Settings, off until you turn it on): off USB, after
-10 minutes with nothing heard over the room's steady hum and the board not
-moved (the QMI8658 motion sensor), the chip sleeps, waking after 1 s, then
-2 s, then every 4 s, to listen for a quarter of a second. Sound, moving the
-board, USB or a button has it listening again at once; the dim ring says
-Standby meanwhile. What it held before stays, but the start of what wakes
-it, up to about 4 s, isn't kept. The battery log marks the minutes in
-standby, so `pull.py --battery` shows what it saves.
+10 minutes with no sound to speak of (a click, a knock or a cough alone
+doesn't count, only a second with sound through it) and the board not moved
+(the QMI8658 motion sensor), the chip sleeps, waking after 1 s, then 2 s,
+then every 4 s, to listen for a quarter of a second. Sound, moving the
+board, USB or a button has it listening again at once. Meanwhile the screen
+is fully dark, the dim ring included, and the ring is back after. What it
+held before stays, but the start of what wakes it, up to about 4 s, isn't
+kept. The battery log marks the minutes in standby, so `pull.py --battery`
+shows what it saves.
 
 The percent doesn't fall evenly: in that run the top half lasted 4.5 hours
 and the bottom half under 1.5. The hours left on the screen allow for that,
