@@ -48,6 +48,7 @@ static const char *TAG = "ui";
 #define BAND_PRESSED lv_color_hex(0x3A3A3A)
 #define BAND_INK lv_color_white()
 #define BAND_SUB lv_color_hex(0xD0D0D0)
+#define BAND_EDGE lv_color_hex(0xB0B0B0)   /* the light grey line round each band */
 #define BAND_AMBER lv_color_hex(0xFFB74D)
 #define BAND_RED lv_color_hex(0xFF8A80)
 #define CONTINUE_MS 10000      /* after a PWR save, PWR again keeps recording for this long (main.c) */
@@ -99,6 +100,8 @@ static atomic_bool s_battery_low;
  * showing only the ring, so it's plain it's listening, or recording. */
 static lv_obj_t *s_aod, *s_aod_ring, *s_aod_text, *s_aod_back;
 static atomic_bool s_aod_on, s_wake_req;
+static atomic_bool s_light_when_drawn;   /* a wake: light the screen after the next frame */
+static void lit_when_drawn(lv_event_t *e);
 /* Sleep and wake take turns: a wake from another task (a screenshot) mid-sleep
  * would leave it "awake" with the dim ring up, and the screen not updating. */
 static SemaphoreHandle_t s_power_lock;
@@ -179,6 +182,7 @@ static esp_err_t display_start(void)
     lv_display_t *disp = esp_lv_adapter_register_display(&disp_cfg);
     ESP_RETURN_ON_FALSE(disp, ESP_FAIL, TAG, "display");
     lv_display_add_event_cb(disp, round_area, LV_EVENT_INVALIDATE_AREA, NULL);
+    lv_display_add_event_cb(disp, lit_when_drawn, LV_EVENT_REFR_READY, NULL);
 
     const bsp_display_cfg_t touch_cfg = {
         .touch_flags = { .mirror_x = 1, .mirror_y = 1 },
@@ -362,25 +366,46 @@ static void wake_locked(void)
         }
         return;
     }
+    /* Dark until the whole screen is drawn: it goes to the panel a strip at
+     * a time, top to bottom, and lit you'd see it come down. LVGL's task
+     * draws it (not this one: drawing takes more stack than the buttons
+     * task has) and lights it when done, in lit_when_drawn(). */
     if (atomic_exchange(&s_aod_on, false)) {
+        set_brightness(0);
         touch_wake();
-        set_brightness(settings_brightness());
         if (esp_lv_adapter_lock(-1) == ESP_OK) {
             lv_screen_load(s_aod_back);
+            lv_obj_invalidate(lv_screen_active());
             lv_display_trigger_activity(NULL);
+            atomic_store(&s_light_when_drawn, true);
             esp_lv_adapter_unlock();
+        } else {
+            set_brightness(settings_brightness());
         }
         return;
     }
+    set_brightness(0);
     panel_cmd(0x11, NULL, 0);
     vTaskDelay(pdMS_TO_TICKS(120));
-    set_brightness(settings_brightness());
     touch_wake();
     esp_lv_adapter_resume();
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
         lv_display_trigger_activity(NULL);
         lv_obj_invalidate(lv_screen_active());
+        atomic_store(&s_light_when_drawn, true);
         esp_lv_adapter_unlock();
+    } else {
+        set_brightness(settings_brightness());
+    }
+}
+
+/* LVGL's task, after each frame: lights the screen once a wake's whole
+ * frame is drawn (it was invalidated with the lock held, so this frame has
+ * all of it). */
+static void lit_when_drawn(lv_event_t *e)
+{
+    if (atomic_exchange(&s_light_when_drawn, false)) {
+        set_brightness(settings_brightness());
     }
 }
 
@@ -1855,7 +1880,8 @@ enum { BAND_PAUSE, BAND_HELP, BAND_SET, BAND_LIST, BANDS };
 #define BAND_RI 108   /* inner radius: 10 px clear of SAVE's 98 */
 #define BAND_RO 208   /* outer: inside the arc beside PWR (from 211) and the ring */
 #define BAND_SEAM 4   /* px: the even black line between the two bands on each side */
-#define BAND_PAD 3    /* a band's words keep at least this far from its edges */
+#define BAND_EDGE_W 3 /* px: that line, inside the band */
+#define BAND_PAD 3    /* a band's words keep at least this far inside that line */
 
 /* Compass degrees, 0 at the top, clockwise. The two on each side meet at 9
  * and 3 o'clock, split by a seam of even width; the gaps at the top and
@@ -1894,18 +1920,47 @@ static void band_draw(lv_event_t *e)
     lv_obj_get_coords(obj, &a);
     d.center.x = (a.x1 + a.x2) / 2;
     d.center.y = (a.y1 + a.y2) / 2;
-    d.radius = BAND_RO;
-    d.width = BAND_RO - BAND_RI;
     d.rounded = 0;
     /* LVGL's angles start at 3 o'clock. */
     int32_t start = (BAND_DEG[i][0] + 270) % 360, end = (BAND_DEG[i][1] + 270) % 360;
     d.start_angle = start;
     d.end_angle = end;
+    /* A light grey line round it, just inside its edges: in sunlight the
+     * grey alone hardly stands out from the black. The whole band in that
+     * grey, then its own colour inside, an edge's width in from the rim and
+     * from SAVE's side: on the board that draws quicker than two thin arcs. */
+    lv_color_t fill = d.color;
+    d.color = BAND_EDGE;
+    d.radius = BAND_RO;
+    d.width = BAND_RO - BAND_RI;
+    lv_draw_arc(lv_event_get_layer(e), &d);
+    d.color = fill;
+    d.radius = BAND_RO - BAND_EDGE_W;
+    d.width = BAND_RO - BAND_RI - 2 * BAND_EDGE_W;
     lv_draw_arc(lv_event_get_layer(e), &d);
     if (i == BAND_PAUSE && s_hold > 0) {   /* filling amber as it's held */
         d.color = AMBER;
         d.end_angle = start + (end - start) * s_hold / 1000;
         lv_draw_arc(lv_event_get_layer(e), &d);
+    }
+    /* The line along its two straight ends, the seam's end set in by half
+     * the seam. */
+    for (int k = 0; k < 2; k++) {
+        int deg = BAND_DEG[i][k];
+        float ea = deg * (float)M_PI / 180.0f, rx = sinf(ea), ry = -cosf(ea);
+        /* Across the end, into the band: clockwise at its start, back at its end. */
+        float in = (k == 0 ? 1.0f : -1.0f) * ((deg == BAND_SEAM_DEG(i) ? BAND_SEAM / 2.0f : 0) + BAND_EDGE_W / 2.0f);
+        float px = cosf(ea) * in, py = sinf(ea) * in;
+        lv_draw_line_dsc_t el;
+        lv_draw_line_dsc_init(&el);
+        el.color = BAND_EDGE;
+        el.width = BAND_EDGE_W;
+        el.opa = d.opa;
+        el.p1.x = d.center.x + rx * BAND_RI + px;
+        el.p1.y = d.center.y + ry * BAND_RI + py;
+        el.p2.x = d.center.x + rx * BAND_RO + px;
+        el.p2.y = d.center.y + ry * BAND_RO + py;
+        lv_draw_line(lv_event_get_layer(e), &el);
     }
     /* The seam to its neighbour on this side: a straight black line, the
      * same width all along (an angular gap widens toward the rim). Both
@@ -2074,8 +2129,8 @@ static float band_col_margin(int i, int32_t dx, int32_t dy)
  * word is a flat box in a slanted band, so at the middle radius one corner
  * nears the rim while the opposite one has room to spare toward SAVE. A
  * warning is logged if a line pokes out, or comes closer than BAND_PAD to
- * an edge, so a new wording can't do it quietly. Runs again when the words
- * change. */
+ * the grey line inside its edge, so a new wording can't do it quietly.
+ * Runs again when the words change. */
 #define BAND_SLIDE 20   /* px either way from the middle radius */
 static void place_band_label(int i)
 {
@@ -2099,7 +2154,7 @@ static void place_band_label(int i)
         }
     }
     lv_obj_align(col, LV_ALIGN_CENTER, x + best_dx, y + best_dy);
-    if (margin < BAND_PAD) {
+    if (margin < BAND_EDGE_W + BAND_PAD) {
         ESP_LOGW(TAG, "band %d: \"%s\" is %.0f px from its band's edge", i, lv_label_get_text(s_band_text[i]),
                  margin);
     }
@@ -2441,6 +2496,30 @@ static void show_room(int n)
     lv_obj_set_style_text_color(sub, free > 1 ? BAND_SUB : free == 1 || replaceable ? BAND_AMBER : BAND_RED, 0);
 }
 
+/* Setting a style or text, even to what it already is, has LVGL redraw
+ * the object, and the ring and the arc beside PWR span the whole screen:
+ * set only what changed, or each tick redraws everything. */
+static void keep_text(lv_obj_t *label, const char *text)
+{
+    if (strcmp(lv_label_get_text(label), text)) {
+        lv_label_set_text(label, text);
+    }
+}
+
+static void keep_text_color(lv_obj_t *obj, lv_color_t c)
+{
+    if (!lv_color_eq(lv_obj_get_style_text_color(obj, LV_PART_MAIN), c)) {
+        lv_obj_set_style_text_color(obj, c, 0);
+    }
+}
+
+static void keep_arc_color(lv_obj_t *obj, lv_color_t c, lv_part_t part)
+{
+    if (!lv_color_eq(lv_obj_get_style_arc_color(obj, part), c)) {
+        lv_obj_set_style_arc_color(obj, c, part);
+    }
+}
+
 /* The dim ring's tick: once a second, its state; every minute it moves a
  * few pixels, so a ring lit for hours doesn't burn into the AMOLED. True
  * while it's showing, when refresh() has nothing else to do. */
@@ -2455,19 +2534,15 @@ static bool aod_tick(uint32_t *ticks)
     bool recording = recorder_save_state() == REC_SAVE_RECORDING;
     int64_t minute = esp_timer_get_time() / 60000000;
     int32_t size = 452 - (int32_t)(minute % 3) * 4;
-    lv_obj_set_size(s_aod_ring, size, size);
-    lv_obj_center(s_aod_ring);
+    lv_obj_set_size(s_aod_ring, size, size);   /* centred when built; aligning again would redraw it */
     lv_arc_set_value(s_aod_ring, recording ? (int32_t)(recorder_recording_seconds() * 1000 / CONFIG_REC_KEEP_MAX_S)
                                            : 1000);
-    lv_obj_set_style_arc_color(s_aod_ring, recording ? RED : recorder_paused() ? AMBER : lv_color_hex(0x546E7A),
-                               LV_PART_INDICATOR);
-    char len[16];
+    keep_arc_color(s_aod_ring, recording ? RED : recorder_paused() ? AMBER : lv_color_hex(0x546E7A),
+                   LV_PART_INDICATOR);
+    char len[16], text[24];
     format_len(recorder_recording_seconds(), len, sizeof(len));
-    lv_label_set_text_fmt(s_aod_text, "%s%s",
-                          recording                ? "REC "
-                          : recorder_paused()      ? "Paused"
-                                                   : "",
-                          recording ? len : "");
+    snprintf(text, sizeof(text), "%s%s", recording ? "REC " : recorder_paused() ? "Paused" : "", recording ? len : "");
+    keep_text(s_aod_text, text);
     lv_obj_set_y(s_aod_text, (int32_t)(minute % 5) * 3);
     return true;
 }
@@ -2563,7 +2638,9 @@ static void refresh(lv_timer_t *t)
     /* Paused, the Pause band is Resume, amber; while recording there's one
      * thing to do, Stop, the big button, so it goes. */
     lv_obj_t *pb = s_band[BAND_PAUSE];
-    lv_obj_set_flag(pb, LV_OBJ_FLAG_HIDDEN, recording);
+    if (recording != lv_obj_has_flag(pb, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_set_flag(pb, LV_OBJ_FLAG_HIDDEN, recording);   /* showing it redraws it, shown or not */
+    }
     if (paused != lv_obj_has_state(pb, LV_STATE_CHECKED)) {
         lv_obj_set_state(pb, LV_STATE_CHECKED, paused);
         lv_label_set_text(s_band_icon[BAND_PAUSE], paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
@@ -2579,24 +2656,24 @@ static void refresh(lv_timer_t *t)
                    : paused  ? 0
                              : level;
     lv_arc_set_value(s_ring, ring < 1000 ? ring : 1000);
-    lv_obj_set_style_arc_color(s_ring, recording ? RED : saving ? lv_theme_get_color_primary(s_save)
-                                       : level > 700 ? lv_color_hex(0x80CBC4) : lv_color_hex(0x546E7A),
-                               LV_PART_INDICATOR);
+    keep_arc_color(s_ring, recording ? RED : saving ? lv_theme_get_color_primary(s_save)
+                           : level > 700 ? lv_color_hex(0x80CBC4) : lv_color_hex(0x546E7A),
+                   LV_PART_INDICATOR);
     char held[16];
     const char *status;   /* the line above SAVE */
     bool offer = st == REC_SAVE_DONE && atomic_load(&s_quiet) && recorder_saved_ms() < CONTINUE_MS &&
                  recorder_can_continue();
-    lv_obj_set_style_text_color(s_held, recording ? RED : paused ? AMBER : offer ? lv_color_white() : DIM, 0);
+    lv_color_t held_color = recording ? RED : paused ? AMBER : offer ? lv_color_white() : DIM;
     if (recording) {
         status = "Recording";
         format_len(recorder_recording_seconds(), held, sizeof(held));
-        lv_label_set_text(s_save_sub, held);
+        keep_text(s_save_sub, held);
     } else if (saving) {
         status = "Saving...";
-        lv_label_set_text(s_save_sub, "");
+        keep_text(s_save_sub, "");
     } else if (paused) {
         status = "Paused: not listening";
-        lv_label_set_text(s_save_sub, "paused");
+        keep_text(s_save_sub, "paused");
     } else {
         bool hint = now < s_hold_hint_us;   /* a tap on Pause */
         bool nothing = now < atomic_load(&s_nothing_until);   /* a save with nothing new */
@@ -2605,17 +2682,16 @@ static void refresh(lv_timer_t *t)
                  : offer ? "Saved. Press PWR again\nto keep recording"
                          : "Listening";
         if (hint || nothing) {
-            lv_obj_set_style_text_color(s_held, lv_color_white(), 0);
+            held_color = lv_color_white();
         }
         /* What SAVE would keep: what's come since the last save. */
         uint32_t fresh = recorder_seconds();
         format_len(fresh, held, sizeof(held));
-        if (fresh) {
-            lv_label_set_text_fmt(s_save_sub, "last %s", held);
-        } else {
-            lv_label_set_text(s_save_sub, "nothing new");
-        }
+        char sub[24];
+        snprintf(sub, sizeof(sub), "last %s", held);
+        keep_text(s_save_sub, fresh ? sub : "nothing new");
     }
+    keep_text_color(s_held, held_color);
     lv_bar_set_value(s_e_level, level / 10, LV_ANIM_OFF);   /* the mic dial's: paused or not */
 
     if (st != shown) {
@@ -2641,26 +2717,31 @@ static void refresh(lv_timer_t *t)
     bool full = st == REC_SAVE_FULL && now - done_at < 5000000;
     bool bad = (st == REC_SAVE_FAILED && recent) || full;
     if (recording) {
-        lv_label_set_text(s_save_label, "STOP");
+        keep_text(s_save_label, "STOP");
     } else if (saving) {
-        lv_label_set_text(s_save_label, "...");
+        keep_text(s_save_label, "...");
     } else if (st == REC_SAVE_DONE && recent) {
-        lv_label_set_text(s_save_label, LV_SYMBOL_OK);
+        keep_text(s_save_label, LV_SYMBOL_OK);
     } else if (bad) {
-        lv_label_set_text(s_save_label, full ? "FULL" : "FAILED");
+        keep_text(s_save_label, full ? "FULL" : "FAILED");
     } else if (paused) {
-        lv_label_set_text(s_save_label, "RESUME");
+        keep_text(s_save_label, "RESUME");
     } else {
-        lv_label_set_text(s_save_label, "SAVE");
+        keep_text(s_save_label, "SAVE");
     }
     set_held(full ? "Full: unprotect or\ndelete one" : status);
     /* SAVE's colour, and the arc beside PWR, which does what SAVE does. */
     bool amber = paused && !recording && !saving && !bad;
     lv_color_t accent = bad || recording ? RED : amber ? AMBER : lv_theme_get_color_primary(s_save);
-    lv_obj_set_style_bg_color(s_save, accent, 0);
-    lv_obj_set_style_arc_color(s_pwr_arc, accent, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_save, amber ? lv_color_hex(0x1A1A1A) : lv_color_white(), 0);
-    lv_obj_set_style_text_font(s_save_label, amber ? &lv_font_montserrat_34 : &lv_font_montserrat_48, 0);
+    if (!lv_color_eq(lv_obj_get_style_bg_color(s_save, LV_PART_MAIN), accent)) {
+        lv_obj_set_style_bg_color(s_save, accent, 0);
+    }
+    keep_arc_color(s_pwr_arc, accent, LV_PART_MAIN);
+    keep_text_color(s_save, amber ? lv_color_hex(0x1A1A1A) : lv_color_white());
+    const lv_font_t *save_font = amber ? &lv_font_montserrat_34 : &lv_font_montserrat_48;
+    if (lv_obj_get_style_text_font(s_save_label, LV_PART_MAIN) != save_font) {
+        lv_obj_set_style_text_font(s_save_label, save_font, 0);
+    }
 
     uint32_t changes = recorder_changes(), going = recorder_recording();
     if (changes != s_list_changes || (ticks % 20 == 0 && lv_screen_active() != s_list_screen)) {
